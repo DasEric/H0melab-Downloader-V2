@@ -36,7 +36,9 @@ def _response(url, *, headers=None):
     headers = {"User-Agent": USER_AGENT, **(headers or {})}
     for _ in range(MAX_REDIRECTS + 1):
         ensure_public_url(url)
-        response = requests.get(url, headers=headers, timeout=30, stream=True, allow_redirects=False)
+        response = requests.get(
+            url, headers=headers, timeout=30, stream=True, allow_redirects=False
+        )
         if response.status_code not in (301, 302, 303, 307, 308):
             response.raise_for_status()
             return response, url
@@ -209,7 +211,9 @@ def _audio_members(archive):
     return members
 
 
-def _install_archive(queue_id, archive_path, root, base_item, *, identifier="", description=""):
+def _install_archive(
+    queue_id, archive_path, root, base_item, *, identifier="", description=""
+):
     installed = []
     with zipfile.ZipFile(archive_path) as archive:
         members = _audio_members(archive)
@@ -222,8 +226,14 @@ def _install_archive(queue_id, archive_path, root, base_item, *, identifier="", 
             title = re.sub(r"^\s*\d+[._ -]*", "", title).strip() or f"Kapitel {index}"
             extension = Path(member.filename).suffix.lower().lstrip(".")
             chapter = LibraryItem(
-                "audiobook", base_item.title, base_item.author, base_item.year,
-                base_item.language, extension, title, track=index,
+                "audiobook",
+                base_item.title,
+                base_item.author,
+                base_item.year,
+                base_item.language,
+                extension,
+                title,
+                track=index,
             )
             final = media_path(root, chapter)
             final.parent.mkdir(parents=True, exist_ok=True)

@@ -1,5 +1,7 @@
 """Catalog API for eBooks, audio books and podcasts."""
 
+import random
+
 from flask import Response, current_app, jsonify, request, url_for
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
@@ -13,12 +15,12 @@ _COVER_TYPES = {"image/avif", "image/gif", "image/jpeg", "image/png", "image/web
 
 def register(bp):
     bp.add_url_rule("/catalog/sources", view_func=catalog_sources)
+    bp.add_url_rule("/catalog/browse", view_func=catalog_browse)
+    bp.add_url_rule("/catalog/random", view_func=catalog_random)
     bp.add_url_rule("/catalog/search", view_func=catalog_search)
     bp.add_url_rule("/catalog/details", view_func=catalog_details)
     bp.add_url_rule("/catalog/cover", view_func=catalog_cover)
-    bp.add_url_rule(
-        "/catalog/download", view_func=catalog_download, methods=["POST"]
-    )
+    bp.add_url_rule("/catalog/download", view_func=catalog_download, methods=["POST"])
 
 
 def _username():
@@ -41,7 +43,13 @@ def catalog_sources():
 def _cover_serializer():
     from ..auth import get_or_create_secret_key
 
-    return URLSafeTimedSerializer(get_or_create_secret_key(), salt="catalog-cover")
+    serializer = current_app.extensions.get("catalog_cover_serializer")
+    if serializer is not None:
+        return serializer
+    key = current_app.secret_key or get_or_create_secret_key()
+    serializer = URLSafeTimedSerializer(key, salt="catalog-cover")
+    current_app.extensions["catalog_cover_serializer"] = serializer
+    return serializer
 
 
 def _proxy_cover(data):
@@ -57,7 +65,9 @@ def catalog_cover():
     try:
         target = _cover_serializer().loads(token, max_age=3600)
         ensure_public_url(target)
-        upstream = get(target, accept="image/avif,image/webp,image/png,image/jpeg,image/*")
+        upstream = get(
+            target, accept="image/avif,image/webp,image/png,image/jpeg,image/*"
+        )
     except (BadSignature, SignatureExpired, CatalogError, ValueError):
         return "", 400
     content_type = (upstream.headers.get("content-type") or "").split(";", 1)[0].lower()
@@ -70,7 +80,10 @@ def catalog_cover():
     return Response(
         content,
         content_type=content_type,
-        headers={"Cache-Control": "private, max-age=3600", "X-Content-Type-Options": "nosniff"},
+        headers={
+            "Cache-Control": "private, max-age=3600",
+            "X-Content-Type-Options": "nosniff",
+        },
     )
 
 
@@ -78,16 +91,49 @@ def _source():
     return get_source((request.args.get("source") or "").strip())
 
 
+def _catalog_error(exc):
+    return jsonify({"error": str(exc), "error_code": "catalog_unavailable"}), 400
+
+
+def catalog_browse():
+    try:
+        page = max(1, min(int(request.args.get("page", 1)), 100))
+        found = _source().browse(page=page)
+    except (CatalogError, ValueError) as exc:
+        return _catalog_error(exc)
+    return jsonify(
+        {"items": [_proxy_cover(item.as_dict()) for item in found], "page": page}
+    )
+
+
+def catalog_random():
+    try:
+        source = _source()
+        page = random.randint(1, 3)
+        found = source.browse(page=page)
+        if not found and page != 1:
+            found = source.browse(page=1)
+        if not found:
+            raise CatalogError("The catalog returned no entries")
+    except (CatalogError, ValueError) as exc:
+        return _catalog_error(exc)
+    return jsonify({"item": _proxy_cover(random.choice(found).as_dict())})
+
+
 def catalog_search():
     query = (request.args.get("q") or "").strip()
     if len(query) < 2:
-        return jsonify({"error": "Search query must contain at least two characters"}), 400
+        return jsonify(
+            {"error": "Search query must contain at least two characters"}
+        ), 400
     try:
         page = max(1, min(int(request.args.get("page", 1)), 100))
         found = _source().search(query, page=page)
     except (CatalogError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
-    return jsonify({"items": [_proxy_cover(item.as_dict()) for item in found], "page": page})
+        return _catalog_error(exc)
+    return jsonify(
+        {"items": [_proxy_cover(item.as_dict()) for item in found], "page": page}
+    )
 
 
 def _target_for(item, asset):
@@ -122,7 +168,7 @@ def catalog_details():
     try:
         item = _source().details(item_id)
     except (CatalogError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _catalog_error(exc)
     return jsonify(_with_target(item))
 
 
@@ -142,7 +188,7 @@ def catalog_download():
         if asset is None:
             raise CatalogError("The selected asset is no longer available")
     except (CatalogError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+        return _catalog_error(exc)
 
     item_payload = item.as_dict()
     item_payload.update(
@@ -165,6 +211,4 @@ def catalog_download():
         payload_version=1,
     )
     worker.ensure_started()
-    return jsonify(
-        {"queue_id": queue_id, "target_path": _target_for(item, asset)}
-    )
+    return jsonify({"queue_id": queue_id, "target_path": _target_for(item, asset)})

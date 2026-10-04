@@ -1,46 +1,101 @@
 {% extends "base.html" %}
 
-{% block title %}eBooks / Audio Books - H0melab Downloader{% endblock %}
+{% block title %}{{ "eBooks / Hörbücher" if ui_language == "de" else "eBooks / Audio Books" }} - H0melab Downloader{% endblock %}
 
 {% block content %}
 <div class="container catalog-page">
-  <h1 data-i18n="catalog.title">eBooks / Audio Books</h1>
-  <p class="hint" data-i18n="catalog.subtitle">Search books, audio books and podcasts and save them directly into your configured Jellyfin/Plex libraries.</p>
+  <h1 data-i18n="index.heading">H0melab Downloader</h1>
 
-  <div class="catalog-kinds" id="catalogKinds" role="tablist" aria-label="Media type">
-    <button class="btn btn-secondary active" type="button" data-kind="ebook" data-i18n="catalog.ebooks">eBooks</button>
-    <button class="btn btn-secondary" type="button" data-kind="audiobook" data-i18n="catalog.audiobooks">Audio Books</button>
-    <button class="btn btn-secondary" type="button" data-kind="podcast" data-i18n="catalog.podcasts">Podcasts</button>
+  <div class="segmented" id="catalogSourceSwitch">
+    <div class="segmented-track" id="catalogSourceTrack" role="tablist"
+      aria-label="{{ 'Katalogquellen' if ui_language == 'de' else 'Catalog sources' }}">
+      <div class="segmented-thumb" id="catalogSourceThumb"></div>
+    </div>
   </div>
 
-  <section class="card catalog-search-card">
-    <div class="catalog-source-list" id="catalogSources" aria-label="Catalog sources"></div>
-    <form class="search-bar" id="catalogSearchForm">
-      <input id="catalogQuery" type="search" minlength="2" autocomplete="off"
-        data-i18n-placeholder="catalog.search_placeholder" placeholder="Title or author" />
-      <button class="btn btn-primary" type="submit" data-i18n="index.search">Search</button>
-    </form>
-    <p class="hint" id="catalogLibraryPath"></p>
-  </section>
+  <form class="search-bar" id="catalogSearchForm">
+    <input id="catalogQuery" type="search" minlength="2" autocomplete="off"
+      data-i18n-placeholder="catalog.search_placeholder"
+      placeholder="{{ 'Titel oder Autor suchen …' if ui_language == 'de' else 'Search by title or author…' }}" />
+    <button class="btn btn-primary" id="catalogSearchBtn" type="submit" data-i18n="index.search">
+      {{ "Suchen" if ui_language == "de" else "Search" }}
+    </button>
+    <button class="btn btn-secondary" id="catalogRandomBtn" type="button" data-i18n="index.random">
+      {{ "Zufall" if ui_language == "de" else "Random" }}
+    </button>
+  </form>
 
-  <div class="catalog-results" id="catalogResults" aria-live="polite"></div>
-  <div class="empty-state" id="catalogEmpty" hidden data-i18n="catalog.empty">No results yet.</div>
+  <div class="spinner" id="catalogSpinner" data-i18n="catalog.loading">
+    {{ "Katalog wird geladen …" if ui_language == "de" else "Loading catalog…" }}
+  </div>
+
+  <div class="results" id="catalogResults" aria-live="polite" hidden></div>
+
+  <div id="catalogBrowse">
+    <section class="browse-section">
+      <h2 class="browse-heading" id="catalogBrowseHeading"></h2>
+      <div class="browse-grid" id="catalogBrowseGrid" aria-live="polite"></div>
+    </section>
+  </div>
 </div>
 
 <div class="overlay" id="catalogModal" hidden>
   <section class="modal catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalogModalTitle">
-    <button class="modal-close" id="catalogModalClose" type="button" aria-label="Close">×</button>
-    <div class="catalog-detail">
-      <img id="catalogCover" alt="" hidden />
-      <div class="catalog-detail-copy">
-        <h2 id="catalogModalTitle"></h2>
-        <p id="catalogMeta" class="hint"></p>
-        <p id="catalogDescription"></p>
-        <div class="path-preview-row catalog-target">
-          <span class="path-preview-label" data-i18n="catalog.target">Target</span>
-          <code id="catalogTarget"></code>
+    <button class="modal-close" id="catalogModalClose" type="button"
+      aria-label="{{ 'Schließen' if ui_language == 'de' else 'Close' }}">×</button>
+
+    <div class="skeleton-view" id="catalogLoading" aria-live="polite" aria-busy="true">
+      <div class="skeleton-header">
+        <div class="skeleton skeleton-poster"></div>
+        <div class="skeleton-meta">
+          <div class="skeleton skeleton-title"></div>
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-line"></div>
+          <div class="skeleton skeleton-line"></div>
         </div>
-        <div id="catalogAssets" class="catalog-assets"></div>
+      </div>
+      <div class="skeleton-status" data-i18n="catalog.loading_details">
+        {{ "Details werden geladen …" if ui_language == "de" else "Loading details…" }}
+      </div>
+    </div>
+
+    <div id="catalogContent" hidden>
+      <div class="series-header catalog-header">
+        <div class="catalog-cover-frame">
+          <img id="catalogCover" alt="" hidden />
+          <i id="catalogCoverFallback" class="fa-solid fa-book-open" aria-hidden="true"></i>
+        </div>
+        <div class="series-meta">
+          <h2 id="catalogModalTitle"></h2>
+          <div class="series-year" id="catalogMeta"></div>
+          <div class="series-desc" id="catalogDescription"></div>
+        </div>
+      </div>
+
+      <div class="control-row catalog-controls">
+        <label class="field">
+          <span class="field-label" data-i18n="index.language">
+            {{ "Sprache" if ui_language == "de" else "Language" }}
+          </span>
+          <input id="catalogLanguage" type="text" readonly />
+        </label>
+        <label class="field">
+          <span class="field-label" data-i18n="index.format">Format</span>
+          <select id="catalogFormat"></select>
+        </label>
+      </div>
+
+      <div class="path-preview-row catalog-target">
+        <span class="path-preview-label" data-i18n="catalog.target">
+          {{ "Zielpfad" if ui_language == "de" else "Target path" }}
+        </span>
+        <code id="catalogTarget"></code>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-primary" id="catalogDownloadBtn" type="button" data-i18n="catalog.download">
+          {{ "Herunterladen" if ui_language == "de" else "Download" }}
+        </button>
       </div>
     </div>
   </section>
@@ -48,5 +103,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='catalog.js') }}?v={{ app_version }}-catalog-v3"></script>
+<script src="{{ url_for('static', filename='catalog.js') }}?v={{ app_version }}-catalog-home-layout-v2"></script>
 {% endblock %}

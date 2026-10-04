@@ -90,6 +90,14 @@ class LinkParser(HTMLParser):
         self._capture = None
         self._capture_text = []
 
+    def _finish_anchor(self):
+        if not self._anchor:
+            return
+        text = " ".join("".join(self._text).split())
+        self.links.append((self._anchor, text))
+        self._anchor = None
+        self._text = []
+
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
         if tag == "meta":
@@ -103,10 +111,15 @@ class LinkParser(HTMLParser):
             self._capture = tag
             self._capture_text = []
         if tag == "a" and values.get("href"):
+            # Several supported legacy catalogs omit closing </a> tags.  Flush
+            # the previous link before a new anchor so its download is not lost.
+            self._finish_anchor()
             self._anchor = urljoin(self.base_url, values["href"])
             self._text = []
         elif tag in ("audio", "source") and values.get("src"):
-            self.links.append((urljoin(self.base_url, values["src"]), values.get("title", "Audio")))
+            self.links.append(
+                (urljoin(self.base_url, values["src"]), values.get("title", "Audio"))
+            )
         elif tag == "img" and values.get("src"):
             self.images.append(urljoin(self.base_url, values["src"]))
 
@@ -117,11 +130,8 @@ class LinkParser(HTMLParser):
             self._capture_text.append(data)
 
     def handle_endtag(self, tag):
-        if tag == "a" and self._anchor:
-            text = " ".join("".join(self._text).split())
-            self.links.append((self._anchor, text))
-            self._anchor = None
-            self._text = []
+        if tag in {"a", "td"} and self._anchor:
+            self._finish_anchor()
         if tag == self._capture:
             text = " ".join("".join(self._capture_text).split())
             if tag == "title":
@@ -135,13 +145,22 @@ class LinkParser(HTMLParser):
 def ensure_public_url(url: str, *, allowed_hosts: tuple[str, ...] = ()) -> str:
     """Reject local/ambiguous targets before any server-side request."""
     parsed = urlparse(str(url))
-    if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
+    if (
+        parsed.scheme != "https"
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+    ):
         raise CatalogError("Only public HTTPS URLs are accepted")
     host = parsed.hostname.rstrip(".").lower()
-    if allowed_hosts and not any(host == allowed or host.endswith("." + allowed) for allowed in allowed_hosts):
+    if allowed_hosts and not any(
+        host == allowed or host.endswith("." + allowed) for allowed in allowed_hosts
+    ):
         raise CatalogError("URL does not belong to this catalog source")
     try:
-        addresses = {row[4][0] for row in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)}
+        addresses = {
+            row[4][0] for row in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+        }
     except OSError as exc:
         raise CatalogError("Catalog host could not be resolved") from exc
     for address in addresses:
@@ -209,6 +228,10 @@ class CatalogSource:
 
     def search(self, query: str, *, page: int = 1) -> list[CatalogItem]:
         raise NotImplementedError
+
+    def browse(self, *, page: int = 1) -> list[CatalogItem]:
+        """Return the source's normal discovery listing."""
+        return self.search("", page=page)
 
     def details(self, item_id: str) -> CatalogItem:
         raise NotImplementedError

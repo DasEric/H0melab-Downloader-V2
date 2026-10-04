@@ -14,8 +14,13 @@ from .sources import (
 _SOURCES = {
     source.key: source
     for source in (
-        AnnasArchiveSource(), GutenbergSource(), StandardEbooksSource(),
-        AudioAnarchySource(), LibriVoxSource(), ListenNotesSource(), PlayerFMSource(),
+        AnnasArchiveSource(),
+        GutenbergSource(),
+        StandardEbooksSource(),
+        AudioAnarchySource(),
+        LibriVoxSource(),
+        ListenNotesSource(),
+        PlayerFMSource(),
     )
 }
 
