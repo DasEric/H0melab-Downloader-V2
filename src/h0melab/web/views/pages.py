@@ -70,6 +70,11 @@ def index():
     )
 
 
+@bp.route("/books-audio")
+def books_audio():
+    return render_template("catalog.html")
+
+
 @bp.route("/queue")
 def queue():
     return render_template("queue.html")

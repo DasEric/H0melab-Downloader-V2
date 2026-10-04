@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}eBooks / Audio Books - H0melab Downloader{% endblock %}
+
+{% block content %}
+<div class="container catalog-page">
+  <h1 data-i18n="catalog.title">eBooks / Audio Books</h1>
+  <p class="hint" data-i18n="catalog.subtitle">Search books, audio books and podcasts and save them directly into your configured Jellyfin/Plex libraries.</p>
+
+  <div class="catalog-kinds" id="catalogKinds" role="tablist" aria-label="Media type">
+    <button class="btn btn-secondary active" type="button" data-kind="ebook" data-i18n="catalog.ebooks">eBooks</button>
+    <button class="btn btn-secondary" type="button" data-kind="audiobook" data-i18n="catalog.audiobooks">Audio Books</button>
+    <button class="btn btn-secondary" type="button" data-kind="podcast" data-i18n="catalog.podcasts">Podcasts</button>
+  </div>
+
+  <section class="card catalog-search-card">
+    <div class="catalog-source-list" id="catalogSources" aria-label="Catalog sources"></div>
+    <form class="search-bar" id="catalogSearchForm">
+      <input id="catalogQuery" type="search" minlength="2" autocomplete="off"
+        data-i18n-placeholder="catalog.search_placeholder" placeholder="Title or author" />
+      <button class="btn btn-primary" type="submit" data-i18n="index.search">Search</button>
+    </form>
+    <p class="hint" id="catalogLibraryPath"></p>
+  </section>
+
+  <div class="catalog-results" id="catalogResults" aria-live="polite"></div>
+  <div class="empty-state" id="catalogEmpty" hidden data-i18n="catalog.empty">No results yet.</div>
+</div>
+
+<div class="overlay" id="catalogModal" hidden>
+  <section class="modal catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalogModalTitle">
+    <button class="modal-close" id="catalogModalClose" type="button" aria-label="Close">×</button>
+    <div class="catalog-detail">
+      <img id="catalogCover" alt="" hidden />
+      <div class="catalog-detail-copy">
+        <h2 id="catalogModalTitle"></h2>
+        <p id="catalogMeta" class="hint"></p>
+        <p id="catalogDescription"></p>
+        <div class="path-preview-row catalog-target">
+          <span class="path-preview-label" data-i18n="catalog.target">Target</span>
+          <code id="catalogTarget"></code>
+        </div>
+        <div id="catalogAssets" class="catalog-assets"></div>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='catalog.js') }}?v={{ app_version }}-catalog-v3"></script>
+{% endblock %}

@@ -153,6 +153,26 @@
           <p class="hint" data-i18n="settings.enable_library_hint">
             Shows the Library tab for browsing and deleting downloaded files.
           </p>
+
+          <h3 data-i18n="settings.media_library_paths">Book and audio library roots</h3>
+          <p class="hint" data-i18n="settings.media_library_paths_hint">
+            Select the existing Jellyfin/Plex library folders. MediaForge creates author, title and episode folders inside them.
+          </p>
+          <div class="control-grid">
+            <label class="field">
+              <span class="field-label" data-i18n="settings.ebook_path">eBooks</span>
+              <input type="text" id="ebookPath" placeholder="/media/Books" />
+            </label>
+            <label class="field">
+              <span class="field-label" data-i18n="settings.audiobook_path">Audio Books</span>
+              <input type="text" id="audiobookPath" placeholder="/media/Audiobooks" />
+            </label>
+            <label class="field">
+              <span class="field-label" data-i18n="settings.podcast_path">Podcasts</span>
+              <input type="text" id="podcastPath" placeholder="/media/Podcasts" />
+            </label>
+          </div>
+          <button class="btn btn-primary" id="saveMediaPathsBtn" data-i18n="common.save">Save</button>
         </section>
 
         <section class="card">

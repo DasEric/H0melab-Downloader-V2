@@ -16,7 +16,7 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@7.3.1/css/all.min.css"
     integrity="sha384-qrALq7+6jBOZIQsNnT6xGkMDru64qD6uTlDra39xrt2SoXl4pO3FX6Roz/RpR/BS"
     crossorigin="anonymous" referrerpolicy="no-referrer" />
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ app_version }}-fast-transfer-compact-progress" />
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v={{ app_version }}-fast-transfer-compact-progress-catalog-v2" />
   {# ?nocss=1 is the way back in when a theme hides the settings page #}
   {% if custom_css_version and request.args.get('nocss') != '1' %}
   <link rel="stylesheet" data-custom-css href="{{ url_for('pages.custom_css') }}?v={{ custom_css_version }}" />
@@ -50,7 +50,8 @@
     </a>
 
     <nav class="sidebar-nav">
-      <a href="{{ url_for('pages.index') }}" class="top-bar-link{% if page_name == 'index' %} active{% endif %}"><i class="fa-solid fa-house" aria-hidden="true"></i><span data-i18n="nav.home">Home</span></a>
+      <a href="{{ url_for('pages.index') }}" class="top-bar-link{% if page_name == 'index' %} active{% endif %}"><i class="fa-solid fa-film" aria-hidden="true"></i><span data-i18n="nav.video">Movies / Series</span></a>
+      <a href="{{ url_for('pages.books_audio') }}" class="top-bar-link{% if page_name == 'books_audio' %} active{% endif %}"><i class="fa-solid fa-book-open-reader" aria-hidden="true"></i><span data-i18n="nav.books_audio">eBooks / Audio Books</span></a>
       {% if library_enabled %}
       <a href="{{ url_for('pages.library') }}" class="top-bar-link{% if page_name == 'library' %} active{% endif %}"><i class="fa-solid fa-folder-open" aria-hidden="true"></i><span data-i18n="nav.library">Library</span></a>
       {% endif %}

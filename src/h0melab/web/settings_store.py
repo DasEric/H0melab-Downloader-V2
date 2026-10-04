@@ -54,6 +54,12 @@ DEFAULT_UPCOMING_CHECKS_PER_DAY = 1
 MIN_UPCOMING_CHECKS_PER_DAY = 1
 MAX_UPCOMING_CHECKS_PER_DAY = 24
 
+MEDIA_LIBRARY_KEYS = {
+    "ebook": "H0MELAB_EBOOK_PATH",
+    "audiobook": "H0MELAB_AUDIOBOOK_PATH",
+    "podcast": "H0MELAB_PODCAST_PATH",
+}
+
 # How Auto-Sync decides when to run: every so often, or at fixed times
 AUTOSYNC_MODES = ("interval", "cron")
 DEFAULT_AUTOSYNC_INTERVAL_SECONDS = 24 * 60 * 60
@@ -215,6 +221,21 @@ def english_sub_disabled():
 def default_language():
     language = os.environ.get("H0MELAB_LANGUAGE", "German Dub")
     return language if language in LANG_LABELS.values() else "German Dub"
+
+
+def media_library_path(media_kind):
+    """Return the existing library root selected for a non-video media kind."""
+    if media_kind not in MEDIA_LIBRARY_KEYS:
+        raise SettingsError(f"Invalid media kind: {media_kind}")
+    configured = os.environ.get(MEDIA_LIBRARY_KEYS[media_kind], "").strip()
+    if configured:
+        return paths.expand(configured)
+    defaults = {"ebook": "Books", "audiobook": "Audiobooks", "podcast": "Podcasts"}
+    return paths.default_download_path() / defaults[media_kind]
+
+
+def media_library_paths():
+    return {kind: str(media_library_path(kind)) for kind in MEDIA_LIBRARY_KEYS}
 
 
 def hls_concurrency():
@@ -446,6 +467,7 @@ def _persist_settings(updates):
 def read_settings():
     return {
         "download_path": str(paths.default_download_path()),
+        "media_library_paths": media_library_paths(),
         "lang_separation": paths.lang_separation_enabled(),
         "disable_english_sub": english_sub_disabled(),
         **{f"enable_{site}": state for site, state in enabled_sites().items()},
@@ -571,6 +593,18 @@ def update_settings(data):
     if "download_path" in data:
         updates["H0MELAB_DOWNLOAD_PATH"] = str(data["download_path"]).strip()
 
+    if "media_library_paths" in data:
+        values = data["media_library_paths"]
+        if not isinstance(values, dict):
+            raise SettingsError("media_library_paths must be an object")
+        for media_kind, env_key in MEDIA_LIBRARY_KEYS.items():
+            if media_kind not in values:
+                continue
+            value = str(values[media_kind]).strip()
+            if not value:
+                raise SettingsError(f"{media_kind} library path cannot be empty")
+            updates[env_key] = value
+
     for field, key in _BOOL_SETTINGS.items():
         if field in data:
             updates[key] = "1" if data[field] else "0"
@@ -667,6 +701,7 @@ def _env_sections():
                 ),
                 ("H0MELAB_HLS_CONCURRENCY", str(hls_concurrency())),
                 (UPCOMING_CHECKS_KEY, str(upcoming_checks_per_day())),
+                *( (env_key, str(media_library_path(kind))) for kind, env_key in MEDIA_LIBRARY_KEYS.items() ),
                 (
                     "H0MELAB_LANG_SEPARATION",
                     _one_or_zero(paths.lang_separation_enabled()),

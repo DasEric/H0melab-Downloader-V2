@@ -96,6 +96,10 @@
     }
 
     el("downloadPath").value = settings.download_path || "";
+    const mediaPaths = settings.media_library_paths || {};
+    el("ebookPath").value = mediaPaths.ebook || "";
+    el("audiobookPath").value = mediaPaths.audiobook || "";
+    el("podcastPath").value = mediaPaths.podcast || "";
     el("uiLanguage").value = settings.ui_language;
     el("outputFormat").value = settings.output_format;
     el("hlsConcurrency").value = settings.hls_concurrency || 8;
@@ -134,6 +138,16 @@
 
   el("saveDownloadPathBtn").addEventListener("click", () => {
     save({ download_path: el("downloadPath").value.trim() });
+  });
+
+  el("saveMediaPathsBtn").addEventListener("click", () => {
+    save({
+      media_library_paths: {
+        ebook: el("ebookPath").value.trim(),
+        audiobook: el("audiobookPath").value.trim(),
+        podcast: el("podcastPath").value.trim()
+      }
+    });
   });
 
   el("saveHlsConcurrencyBtn").addEventListener("click", () => {

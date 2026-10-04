@@ -293,6 +293,12 @@ _MIGRATIONS = {
         "started_at": "TEXT",
         "active_provider": "TEXT",
         "subtitle_language": "TEXT NOT NULL DEFAULT 'none'",
+        "media_kind": "TEXT NOT NULL DEFAULT 'video'",
+        "source_site": "TEXT",
+        "transfer_kind": "TEXT NOT NULL DEFAULT 'stream'",
+        "current_bytes": "INTEGER NOT NULL DEFAULT 0",
+        "total_bytes": "INTEGER NOT NULL DEFAULT 0",
+        "payload_version": "INTEGER NOT NULL DEFAULT 1",
     },
     "autosync_series": {"subtitle_language": "TEXT NOT NULL DEFAULT 'none'"},
 }
@@ -530,13 +536,17 @@ def add_to_queue(
     custom_path_id=None,
     source="manual",
     discord_user_id=None,
+    media_kind="video",
+    source_site=None,
+    transfer_kind="stream",
+    payload_version=1,
 ):
     with session() as conn:
         cur = conn.execute(
             "INSERT INTO download_queue "
             "(title, series_url, episodes, total_episodes, language, subtitle_language, provider, username, "
-            " custom_path_id, source, discord_user_id) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " custom_path_id, source, discord_user_id, media_kind, source_site, transfer_kind, payload_version) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 title,
                 series_url,
@@ -549,6 +559,10 @@ def add_to_queue(
                 custom_path_id,
                 source,
                 discord_user_id,
+                media_kind,
+                source_site,
+                transfer_kind,
+                payload_version,
             ),
         )
         queue_id = cur.lastrowid
@@ -803,6 +817,14 @@ def update_queue_progress(queue_id, current_episode, current_url):
         conn.execute(
             "UPDATE download_queue SET current_episode = ?, current_url = ? WHERE id = ?",
             (current_episode, current_url, queue_id),
+        )
+
+
+def update_queue_bytes(queue_id, current_bytes, total_bytes=0):
+    with session() as conn:
+        conn.execute(
+            "UPDATE download_queue SET current_bytes = ?, total_bytes = ? WHERE id = ?",
+            (max(0, int(current_bytes)), max(0, int(total_bytes or 0)), queue_id),
         )
 
 

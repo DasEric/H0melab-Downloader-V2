@@ -19,6 +19,7 @@ dependencies = [
   "patchright",                                                               # >=3.9
   "curl_cffi",                                                                # TLS impersonation for Cloudflare-gated hosters (VOE)
   "yt-dlp",                                                                   # resilient multi-fragment transfer fallback
+  "mutagen",                                                                  # Jellyfin/Plex audio tags
 ]
 
 

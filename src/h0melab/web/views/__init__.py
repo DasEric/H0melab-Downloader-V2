@@ -8,6 +8,7 @@ from flask import Blueprint
 
 from . import (
     api_autosync,
+    api_catalog,
     api_keys,
     api_library,
     api_media,
@@ -68,6 +69,7 @@ def register_blueprints(app):
     api = Blueprint("api", __name__, url_prefix="/api")
     for module in (
         api_media,
+        api_catalog,
         api_queue,
         api_settings,
         api_library,

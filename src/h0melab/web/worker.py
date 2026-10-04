@@ -132,6 +132,8 @@ def _process(item):
 
     queue_id = item["id"]
     entries = json.loads(item["episodes"])
+    if item.get("source") == "catalog":
+        return _process_catalog(item, entries)
     selected_path = paths.target_path(item["language"], item.get("custom_path_id"))
     errors = []
 
@@ -198,6 +200,34 @@ def _process(item):
 
     if status == "completed" and item.get("source") == "discord":
         _notify_discord(item)
+
+
+def _process_catalog(item, entries):
+    """Process book/audio assets without passing them to video providers."""
+    from ..catalog.download import download_entry
+
+    queue_id = item["id"]
+    errors = []
+    for index, entry in enumerate(entries):
+        label = entry.get("asset", {}).get("label") or entry.get("asset", {}).get("url", "")
+        try:
+            db.update_queue_progress(queue_id, index, label)
+            download_entry(queue_id, entry)
+        except Exception as exc:
+            if not db.cancel_flags(queue_id)[1]:
+                logger.error("Catalog download failed for %s: %s", label, exc)
+                errors.append({"url": label, "error": str(exc)})
+                db.update_queue_errors(queue_id, errors)
+        cancelled, forced = db.cancel_flags(queue_id)
+        if cancelled:
+            done = index if forced else index + 1
+            db.update_queue_progress(queue_id, done, "")
+            db.set_queue_status(queue_id, "cancelled")
+            return
+    db.update_queue_progress(queue_id, len(entries), "")
+    db.set_queue_status(
+        queue_id, "failed" if errors and len(errors) == len(entries) else "completed"
+    )
 
 
 def _notify_discord(item):
