@@ -17,7 +17,13 @@ from h0melab.web import db, worker
 
 @pytest.mark.parametrize(
     "value,expected",
-    [("de", "deu"), ("de-DE", "deu"), ("ger", "deu"), ("Deutsch", "deu"), ("none", "none")],
+    [
+        ("de", "deu"),
+        ("de-DE", "deu"),
+        ("ger", "deu"),
+        ("Deutsch", "deu"),
+        ("none", "none"),
+    ],
 )
 def test_subtitle_language_normalization(value, expected):
     assert normalize_subtitle_language(value) == expected
@@ -31,9 +37,7 @@ def test_voe_player_captions_are_kept(monkeypatch):
             {
                 "source": "https://cdn.example/video.m3u8",
                 "default_captions_language": "de",
-                "captions": [
-                    {"file": "/captions/episode.vtt", "label": "Deutsch"}
-                ],
+                "captions": [{"file": "/captions/episode.vtt", "label": "Deutsch"}],
             }
         ],
     )
@@ -84,10 +88,14 @@ def test_serienstream_requires_requested_subtitle_from_same_hoster(monkeypatch):
         selected_subtitle_language="deu",
     )
     monkeypatch.setattr(
-        SerienstreamEpisode, "provider_url", property(lambda _self: "https://voe.sx/e/x")
+        SerienstreamEpisode,
+        "provider_url",
+        property(lambda _self: "https://voe.sx/e/x"),
     )
     monkeypatch.setitem(
-        __import__("h0melab.models.s_to.episode", fromlist=["provider_functions"]).provider_functions,
+        __import__(
+            "h0melab.models.s_to.episode", fromlist=["provider_functions"]
+        ).provider_functions,
         "get_media_asset_from_voe",
         lambda _url: MediaAsset("https://cdn.example/video.m3u8", ()),
     )
@@ -102,16 +110,16 @@ def test_download_api_persists_subtitle_choice(client):
         json={
             "title": "Dark",
             "series_url": "https://serienstream.to/serie/dark",
-            "episodes": [
-                "https://serienstream.to/serie/dark/staffel-1/episode-1"
-            ],
+            "episodes": ["https://serienstream.to/serie/dark/staffel-1/episode-1"],
             "language": "German Dub",
             "provider": "VOE",
             "subtitle_language": "deu",
         },
     )
     assert response.status_code == 200
-    assert db.get_queue_item(response.get_json()["queue_id"])["subtitle_language"] == "deu"
+    assert (
+        db.get_queue_item(response.get_json()["queue_id"])["subtitle_language"] == "deu"
+    )
 
 
 def test_download_api_rejects_subtitles_for_other_catalogues(client):
@@ -248,7 +256,9 @@ def test_mkv_remux_keeps_soft_subtitle_timing(tmp_path, monkeypatch):
         capture_output=True,
         text=True,
     )
-    assert float(json.loads(packets.stdout)["packets"][0]["pts_time"]) == pytest.approx(0.5)
+    assert float(json.loads(packets.stdout)["packets"][0]["pts_time"]) == pytest.approx(
+        0.5
+    )
 
 
 @pytest.mark.skipif(not shutil.which("ffmpeg"), reason="FFmpeg is not installed")
@@ -329,6 +339,4 @@ def test_mp4_remux_keeps_selectable_subtitle_and_timing(tmp_path, monkeypatch):
         ],
         check=True,
     )
-    assert "00:00:00,750 --> 00:00:01,250" in extracted.read_text(
-        encoding="utf-8-sig"
-    )
+    assert "00:00:00,750 --> 00:00:01,250" in extracted.read_text(encoding="utf-8-sig")

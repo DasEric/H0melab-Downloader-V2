@@ -260,9 +260,7 @@ def test_autosync_existing_episode_requires_requested_subtitle(tmp_path, monkeyp
     folder.mkdir(parents=True)
     episode_file = folder / "Dark S01E001.mkv"
     episode_file.write_bytes(b"video")
-    monkeypatch.setattr(
-        autosync, "languages_from_probe", lambda _path: {"German Dub"}
-    )
+    monkeypatch.setattr(autosync, "languages_from_probe", lambda _path: {"German Dub"})
     monkeypatch.setattr(autosync, "subtitle_languages_from_probe", lambda _path: set())
 
     assert autosync.episodes_in_folder(folder.parent, "German Dub", "deu") == set()
@@ -270,9 +268,7 @@ def test_autosync_existing_episode_requires_requested_subtitle(tmp_path, monkeyp
     monkeypatch.setattr(
         autosync, "subtitle_languages_from_probe", lambda _path: {"deu"}
     )
-    assert autosync.episodes_in_folder(folder.parent, "German Dub", "deu") == {
-        (1, 1)
-    }
+    assert autosync.episodes_in_folder(folder.parent, "German Dub", "deu") == {(1, 1)}
 
 
 def test_new_only_ignores_baseline_but_queues_later_episodes(monkeypatch, downloads):

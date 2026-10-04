@@ -39,7 +39,9 @@ def test_unknown_source_is_rejected():
 
 def test_existing_library_root_is_not_duplicated(tmp_path):
     root = tmp_path / "eBooks"
-    result = media_path(root, LibraryItem("ebook", "Das Buch", "Ada", "2026", extension="epub"))
+    result = media_path(
+        root, LibraryItem("ebook", "Das Buch", "Ada", "2026", extension="epub")
+    )
     assert result == root / "Ada" / "Das Buch (2026)" / "Das Buch (2026).epub"
     assert "Books" not in result.relative_to(root).parts
 
@@ -47,7 +49,15 @@ def test_existing_library_root_is_not_duplicated(tmp_path):
 def test_audiobook_layout_matches_artist_album_track(tmp_path):
     result = media_path(
         tmp_path / "Audiobooks",
-        LibraryItem("audiobook", "Werk", "Autor", "", extension="mp3", episode_title="Anfang", track=1),
+        LibraryItem(
+            "audiobook",
+            "Werk",
+            "Autor",
+            "",
+            extension="mp3",
+            episode_title="Anfang",
+            track=1,
+        ),
     )
     assert result.parts[-3:] == ("Autor", "Werk", "01 - Anfang.mp3")
 
@@ -55,25 +65,37 @@ def test_audiobook_layout_matches_artist_album_track(tmp_path):
 def test_podcast_layout_uses_show_year_and_date(tmp_path):
     result = media_path(
         tmp_path / "Podcasts",
-        LibraryItem("podcast", "Sendung", "Herausgeber", extension="mp3", episode_title="Folge", episode_date="2026-10-04"),
+        LibraryItem(
+            "podcast",
+            "Sendung",
+            "Herausgeber",
+            extension="mp3",
+            episode_title="Folge",
+            episode_date="2026-10-04",
+        ),
     )
     assert result.parts[-3:] == ("Sendung", "2026", "2026-10-04 - Folge.mp3")
 
 
 def test_names_are_portable():
-    assert safe_component('CON', "x") == "_CON"
-    assert safe_component('A:B/C*', "x") == "A-B-C"
+    assert safe_component("CON", "x") == "_CON"
+    assert safe_component("A:B/C*", "x") == "A-B-C"
 
 
 def test_opf_contains_book_metadata():
-    result = opf_bytes(LibraryItem("ebook", "Titel", "Autor", "2026", "de"), identifier="id-1")
+    result = opf_bytes(
+        LibraryItem("ebook", "Titel", "Autor", "2026", "de"), identifier="id-1"
+    )
     assert b"Titel" in result
     assert b"Autor" in result
     assert b"id-1" in result
 
 
 def test_descriptions_are_plain_readable_text():
-    assert html_to_text("<p>Erste <strong>Zeile</strong></p><p>Zweite</p>") == "Erste Zeile Zweite"
+    assert (
+        html_to_text("<p>Erste <strong>Zeile</strong></p><p>Zweite</p>")
+        == "Erste Zeile Zweite"
+    )
     item = CatalogItem("1", "test", "ebook", "Titel", description="<b>Beschreibung</b>")
     assert item.as_dict()["description"] == "Beschreibung"
 
@@ -158,7 +180,10 @@ def test_media_library_paths_can_be_saved(client, tmp_path):
         "audiobook": str(tmp_path / "my-audio"),
         "podcast": str(tmp_path / "my-podcasts"),
     }
-    assert client.put("/api/settings", json={"media_library_paths": roots}).status_code == 200
+    assert (
+        client.put("/api/settings", json={"media_library_paths": roots}).status_code
+        == 200
+    )
     assert client.get("/api/settings").get_json()["media_library_paths"] == roots
 
 
@@ -170,7 +195,9 @@ def test_catalog_download_re_resolves_asset_on_server(client, monkeypatch):
         "ebook",
         "The Test Book",
         "Test Author",
-        assets=(CatalogAsset("asset-1", "https://gutenberg.org/book.epub", "EPUB", "epub"),),
+        assets=(
+            CatalogAsset("asset-1", "https://gutenberg.org/book.epub", "EPUB", "epub"),
+        ),
     )
     monkeypatch.setattr(source, "details", lambda item_id: item)
     response = client.post(
