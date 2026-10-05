@@ -84,3 +84,34 @@ def test_failed_modal_does_not_cache_serienstream_url(monkeypatch):
         with pytest.raises(ValueError, match="Failed to resolve provider URL"):
             _ = episode.stream_url
     assert solve.call_count == 2
+
+
+def test_modal_navigation_falls_back_after_dns_failure(monkeypatch):
+    from h0melab.models.s_to import http
+
+    http._active_idx = 0
+
+    class Page:
+        def __init__(self):
+            self.calls = []
+
+        def goto(self, url, **_kwargs):
+            self.calls.append(url)
+            if "serienstream.to" in url:
+                raise RuntimeError("Page.goto: net::ERR_NAME_NOT_RESOLVED")
+
+    page = Page()
+    redirect = "https://serienstream.to/r?t=signed-token"
+    opened, rewritten_redirect = captcha._open_sto_episode_with_fallback(
+        page,
+        "https://serienstream.to/serie/example/staffel-1/episode-1",
+        redirect,
+        Mock(),
+    )
+
+    assert page.calls == [
+        "https://serienstream.to/serie/example/staffel-1/episode-1",
+        "https://serienstream.cx/serie/example/staffel-1/episode-1",
+    ]
+    assert opened.startswith("https://serienstream.cx/")
+    assert rewritten_redirect == "https://serienstream.cx/r?t=signed-token"

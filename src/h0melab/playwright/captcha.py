@@ -199,6 +199,7 @@ _AD_SAFE_HOST_SUFFIXES = (
     "recaptcha.net",
     "s.to",
     "serienstream.to",
+    "serienstream.cx",
     "aniworld.to",
     "filmpalast.to",
 )
@@ -2146,6 +2147,51 @@ def playwright_get_veev_stream_url(url: str, timeout: int = 30) -> str:
         raise RuntimeError(f"Failed to capture Veev stream URL: {exc}") from exc
 
 
+_STO_NAVIGATION_ERRORS = (
+    "ERR_NAME_NOT_RESOLVED",
+    "ERR_CONNECTION_REFUSED",
+    "ERR_CONNECTION_TIMED_OUT",
+    "ERR_CONNECTION_CLOSED",
+    "ERR_NETWORK_CHANGED",
+)
+
+
+def _open_sto_episode_with_fallback(page, episode_url, redirect_url, logger):
+    """Open an episode with the HTTP layer's current domain preference.
+
+    Only network-level navigation failures advance to the next domain. Page or
+    provider errors must remain visible instead of being hidden by a retry.
+    """
+    from urllib.parse import urlparse
+
+    from ..models.s_to.http import sto_browser_candidates
+
+    episode_candidates = sto_browser_candidates(episode_url)
+    redirect_candidates = sto_browser_candidates(redirect_url) if redirect_url else ()
+    last_error = None
+    for index, candidate in enumerate(episode_candidates):
+        candidate_redirect = (
+            redirect_candidates[index]
+            if index < len(redirect_candidates)
+            else redirect_url
+        )
+        try:
+            logger.debug(f"Opening episode page for modal solving: {candidate}")
+            page.goto(candidate, wait_until="domcontentloaded")
+            return candidate, candidate_redirect
+        except Exception as exc:
+            last_error = exc
+            if not any(marker in str(exc) for marker in _STO_NAVIGATION_ERRORS):
+                raise
+            logger.warning(
+                "SerienStream browser navigation failed for %s; trying the next domain",
+                urlparse(candidate).netloc,
+            )
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("No SerienStream browser domain is available")
+
+
 def solve_sto_modal(
     episode_url: str,
     provider_name: str,
@@ -2175,6 +2221,11 @@ def solve_sto_modal(
         )
 
     from ..logger import get_logger
+    from ..models.common.common import (
+        DownloadCancelled,
+        DownloadPaused,
+        _raise_for_queue_control,
+    )
 
     logger = get_logger(__name__)
 
@@ -2202,11 +2253,16 @@ def solve_sto_modal(
         # to the /r?t=... redirect URL directly bounces to the site's
         # homepage, because the token is consumed by the in-page player JS
         # and not by a top-level GET — so we open the episode page and click.
-        start_url = episode_url
+        from urllib.parse import urlparse as _urlparse
+
+        from ..models.s_to.http import sto_browser_candidates
+
+        start_url = sto_browser_candidates(episode_url)[0]
+        active_redirect_url = (
+            sto_browser_candidates(redirect_url)[0] if redirect_url else None
+        )
 
         with sync_playwright() as p:
-            from urllib.parse import urlparse as _urlparse
-
             # Episode-page netloc — the "home" domain.  Any other netloc is
             # either an ad (blocked) or the provider result (allowed post-submit).
             sto_netloc = _urlparse(episode_url).netloc
@@ -2282,8 +2338,10 @@ def solve_sto_modal(
 
             context.on("page", _on_new_page)
 
-            logger.debug(f"Opening episode page for modal solving: {start_url}")
-            page.goto(start_url, wait_until="domcontentloaded")
+            start_url, active_redirect_url = _open_sto_episode_with_fallback(
+                page, episode_url, redirect_url, logger
+            )
+            sto_netloc = _urlparse(start_url).netloc
             _focus_page(page)
             _sync_session_user_agent(page)
 
@@ -2295,8 +2353,8 @@ def solve_sto_modal(
             _remove_ad_overlays(page)
 
             play_path = None
-            if redirect_url:
-                _sp = _urlparse(redirect_url)
+            if active_redirect_url:
+                _sp = _urlparse(active_redirect_url)
                 play_path = _sp.path + (("?" + _sp.query) if _sp.query else "")
 
             clicked = False
@@ -2333,14 +2391,15 @@ def solve_sto_modal(
                     "Provider play button not found on episode page — "
                     "falling back to direct redirect navigation"
                 )
-                if redirect_url:
-                    page.goto(redirect_url, wait_until="domcontentloaded")
+                if active_redirect_url:
+                    page.goto(active_redirect_url, wait_until="domcontentloaded")
 
             final_url = None
             weiter_clicked = False
             start = _time.time()
 
             while _time.time() - start < _captcha_timeout(90):
+                _raise_for_queue_control()
                 # WebUI: stream screenshots + forward user clicks
                 if session_obj is not None:
                     try:
@@ -2479,6 +2538,10 @@ def solve_sto_modal(
 
         return final_url
 
+    except (DownloadCancelled, DownloadPaused):
+        with _captcha_state_lock:
+            _captcha_state = None
+        raise
     except Exception as e:
         from ..logger import get_logger
 

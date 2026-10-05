@@ -9,6 +9,8 @@ Anything the parser does not fully understand raises `HLSUnsupported` so the
 caller can fall back to letting FFmpeg handle the stream directly.
 """
 
+import hashlib
+import json
 import os
 import re
 import struct
@@ -457,7 +459,7 @@ class _ProgressTracker:
             pass
 
     def check_cancelled(self):
-        """Raise the downloader's cancellation exception for a forced stop."""
+        """Raise the downloader's control exception for a forced stop or pause."""
         now = time.monotonic()
         with self._lock:
             if now - self._last_cancel_check < 0.5:
@@ -466,11 +468,14 @@ class _ProgressTracker:
         if self._queue_id is None:
             return
         try:
-            from ...web.db import is_queue_force_cancelled
+            from ...web.db import queue_control_flags
 
-            if is_queue_force_cancelled(self._queue_id):
+            _cancelled, forced, paused = queue_control_flags(self._queue_id)
+            if forced:
                 raise self._common.DownloadCancelled("Download cancelled")
-        except self._common.DownloadCancelled:
+            if paused:
+                raise self._common.DownloadPaused("Download paused")
+        except (self._common.DownloadCancelled, self._common.DownloadPaused):
             raise
         except Exception:
             # CLI use and tests do not necessarily initialise the web database.
@@ -504,6 +509,16 @@ class _ProgressTracker:
             self._done_work += (
                 segment.duration if self._use_duration else 1.0
             )
+        self._publish(force=True)
+
+    def restore(self, segments):
+        """Seed progress for segments already verified by a resume checkpoint."""
+        with self._lock:
+            for segment in segments:
+                self.done += 1
+                self._done_work += (
+                    segment.duration if self._use_duration else 1.0
+                )
         self._publish(force=True)
 
     def finish(self):
@@ -559,6 +574,41 @@ def _download_playlist(playlist, headers, temp_prefix, suffix, tracker, concurre
     output_path = temp_prefix.with_suffix(
         f"{suffix}{'.mp4' if playlist.init_uri else '.ts'}"
     )
+    checkpoint_path = output_path.with_name(output_path.name + ".resume.json")
+    fingerprint = hashlib.sha256(
+        "\n".join(
+            [playlist.url, playlist.init_uri or ""]
+            + [segment.uri for segment in playlist.segments]
+        ).encode("utf-8")
+    ).hexdigest()
+
+    completed = 0
+    if output_path.exists() and checkpoint_path.exists():
+        try:
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            if (
+                checkpoint.get("fingerprint") != fingerprint
+                or checkpoint.get("size") != output_path.stat().st_size
+            ):
+                raise ValueError("stale HLS checkpoint")
+            completed = max(
+                0,
+                min(int(checkpoint.get("completed", 0)), len(playlist.segments)),
+            )
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            output_path.unlink(missing_ok=True)
+            checkpoint_path.unlink(missing_ok=True)
+            completed = 0
+
+    def _save_checkpoint(done):
+        payload = {
+            "fingerprint": fingerprint,
+            "completed": done,
+            "size": output_path.stat().st_size,
+        }
+        temporary = checkpoint_path.with_name(checkpoint_path.name + ".tmp")
+        temporary.write_text(json.dumps(payload), encoding="utf-8")
+        os.replace(temporary, checkpoint_path)
 
     key_cache = {}
     key_cache_lock = threading.Lock()
@@ -596,8 +646,13 @@ def _download_playlist(playlist, headers, temp_prefix, suffix, tracker, concurre
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    with open(output_path, "wb") as handle:
-        if playlist.init_uri:
+    if completed:
+        tracker.restore(playlist.segments[:completed])
+    if completed == len(playlist.segments):
+        return output_path
+
+    with open(output_path, "ab" if completed else "wb") as handle:
+        if playlist.init_uri and not completed:
             handle.write(
                 _fetch_bytes(
                     playlist.init_uri,
@@ -606,11 +661,17 @@ def _download_playlist(playlist, headers, temp_prefix, suffix, tracker, concurre
                     check_cancelled=tracker.check_cancelled,
                 )
             )
+            handle.flush()
+            _save_checkpoint(0)
 
         if concurrency == 1:
-            for segment in playlist.segments:
+            for index, segment in enumerate(
+                playlist.segments[completed:], start=completed + 1
+            ):
                 chunk = _fetch_segment(segment)
                 handle.write(chunk)
+                handle.flush()
+                _save_checkpoint(index)
                 tracker.complete(segment)
             return output_path
 
@@ -618,22 +679,28 @@ def _download_playlist(playlist, headers, temp_prefix, suffix, tracker, concurre
         # regardless of how many segments the playlist has.
         window = concurrency * 2
         pending = deque()
-        next_index = 0
+        next_index = completed
 
         with ThreadPoolExecutor(max_workers=concurrency) as pool:
             while next_index < len(playlist.segments) and len(pending) < window:
                 segment = playlist.segments[next_index]
-                pending.append((segment, pool.submit(_fetch_segment, segment)))
+                pending.append(
+                    (next_index, segment, pool.submit(_fetch_segment, segment))
+                )
                 next_index += 1
 
             while pending:
-                segment, future = pending.popleft()
+                index, segment, future = pending.popleft()
                 chunk = future.result()
                 handle.write(chunk)
+                handle.flush()
+                _save_checkpoint(index + 1)
                 tracker.complete(segment)
                 if next_index < len(playlist.segments):
                     segment = playlist.segments[next_index]
-                    pending.append((segment, pool.submit(_fetch_segment, segment)))
+                    pending.append(
+                        (next_index, segment, pool.submit(_fetch_segment, segment))
+                    )
                     next_index += 1
 
     return output_path
@@ -722,6 +789,9 @@ def download_hls_parallel(
         tracker.finish()
         succeeded = True
         return written
+    except _common().DownloadPaused:
+        # The output and checkpoint describe only fully flushed segments.
+        raise
     except Exception:
         cleanup_temp_files(temp_prefix)
         raise
@@ -740,5 +810,13 @@ def cleanup_temp_files(temp_prefix):
         ".hls_video.mp4",
         ".hls_audio.ts",
         ".hls_audio.mp4",
+        ".hls_video.ts.resume.json",
+        ".hls_video.mp4.resume.json",
+        ".hls_audio.ts.resume.json",
+        ".hls_audio.mp4.resume.json",
+        ".hls_video.ts.resume.json.tmp",
+        ".hls_video.mp4.resume.json.tmp",
+        ".hls_audio.ts.resume.json.tmp",
+        ".hls_audio.mp4.resume.json.tmp",
     ):
         temp_prefix.with_suffix(suffix).unlink(missing_ok=True)

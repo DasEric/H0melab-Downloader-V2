@@ -113,6 +113,33 @@ def test_every_episode_is_downloaded_in_order(queue_item, run_worker):
     assert db.get_queue_item(queue_id)["current_episode"] == 5
 
 
+def test_resumed_item_starts_at_the_saved_episode(queue_item, run_worker):
+    queue_id = queue_item(episodes=["https://x/ep1", "https://x/ep2", "https://x/ep3"])
+    db.update_queue_progress(queue_id, 1, "https://x/ep2")
+    db.set_queue_status(queue_id, "running")
+
+    calls = run_worker(queue_id)
+
+    assert [call["url"] for call in calls] == ["https://x/ep2", "https://x/ep3"]
+
+
+def test_running_item_pauses_without_recording_an_error(queue_item, run_worker):
+    queue_id = queue_item(episodes=["https://x/ep1", "https://x/ep2"])
+    db.set_queue_status(queue_id, "running")
+
+    def pause(_url):
+        db.pause_queue_item(queue_id)
+
+    calls = run_worker(queue_id, on_download=pause)
+    item = db.get_queue_item(queue_id)
+
+    assert [call["url"] for call in calls] == ["https://x/ep1"]
+    assert item["status"] == "queued"
+    assert item["pause_requested"] == 1
+    assert item["current_episode"] == 1
+    assert item["errors"] == "[]"
+
+
 def test_progress_is_visible_while_it_runs(queue_item, run_worker):
     seen = []
     queue_id = queue_item(episodes=["https://x/ep1", "https://x/ep2"])

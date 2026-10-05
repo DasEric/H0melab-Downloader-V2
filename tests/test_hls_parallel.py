@@ -42,6 +42,45 @@ second.ts
     assert [segment.duration for segment in segments] == [4.5, 5.5]
 
 
+def test_paused_playlist_resumes_after_the_last_flushed_segment(monkeypatch, tmp_path):
+    segments = [
+        hls._Segment(f"https://cdn.example/{name}.ts", None, index, 5.0)
+        for index, name in enumerate(("one", "two", "three"), 1)
+    ]
+    playlist = hls._MediaPlaylist(
+        "https://cdn.example/index.m3u8", segments, None
+    )
+    tracker = hls._ProgressTracker([playlist], "test")
+    calls = []
+
+    def pause_after_first(url, _headers, on_bytes=None, check_cancelled=None):
+        calls.append(url)
+        if url.endswith("two.ts"):
+            raise common.DownloadPaused("Download paused")
+        return url.rsplit("/", 1)[-1].encode()
+
+    monkeypatch.setattr(hls, "_fetch_bytes", pause_after_first)
+    prefix = tmp_path / "episode.hlswork"
+    with pytest.raises(common.DownloadPaused):
+        hls._download_playlist(playlist, {}, prefix, ".hls_video", tracker, 1)
+
+    resumed_calls = []
+
+    def resume(url, _headers, on_bytes=None, check_cancelled=None):
+        resumed_calls.append(url)
+        return url.rsplit("/", 1)[-1].encode()
+
+    monkeypatch.setattr(hls, "_fetch_bytes", resume)
+    tracker = hls._ProgressTracker([playlist], "test")
+    output = hls._download_playlist(playlist, {}, prefix, ".hls_video", tracker, 1)
+
+    assert resumed_calls == [
+        "https://cdn.example/two.ts",
+        "https://cdn.example/three.ts",
+    ]
+    assert output.read_bytes() == b"one.tstwo.tsthree.ts"
+
+
 def test_parallel_download_selects_best_variant_and_requested_audio(
     monkeypatch, tmp_path
 ):

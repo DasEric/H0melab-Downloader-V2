@@ -1632,6 +1632,11 @@ body[data-site="htv"] {
   margin-top: 0;
 }
 
+.status-paused {
+  background: var(--status-queued-bg);
+  color: var(--status-queued-text);
+}
+
 .progress-caption {
   margin: 0.42rem 0 0.2rem;
   color: var(--text-muted);

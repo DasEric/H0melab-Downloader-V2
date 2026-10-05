@@ -148,6 +148,27 @@ def sto_rewrite(url):
     return _HOST_RE.sub(r"\1" + sto_host(), url, count=1)
 
 
+def sto_browser_candidates(url):
+    """Return browser-safe variants ordered by the last working HTTP host.
+
+    The HTTP client has its own DoH resolver and may already have failed over
+    while Chromium still tries the original hostname with the system resolver.
+    Keep the path/query intact and let the browser try every configured domain.
+    """
+    if not url or not _HOST_RE.match(str(url)):
+        return (url,) if url else ()
+
+    with _state_lock:
+        start_idx = _active_idx
+    ordered = [
+        STO_DOMAINS[(start_idx + offset) % len(STO_DOMAINS)]
+        for offset in range(len(STO_DOMAINS))
+    ]
+    return tuple(
+        _HOST_RE.sub(r"\1" + host, str(url), count=1) for host in ordered
+    )
+
+
 def _path_of(url):
     return _HOST_RE.sub("", url, count=1) or "/"
 

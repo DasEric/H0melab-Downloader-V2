@@ -13,6 +13,7 @@ from urllib.parse import urljoin
 import niquests as requests
 
 from ..config import H0MELAB_CONFIG_DIR
+from ..models.common.common import DownloadPaused
 from ..models.common.library_layout import (
     LibraryItem,
     media_path,
@@ -29,6 +30,14 @@ MAX_REDIRECTS = 5
 MAX_ARCHIVE_FILES = 2000
 MAX_ARCHIVE_BYTES = 20 * 1024 * 1024 * 1024
 _AUDIO_EXTENSIONS = {"mp3", "m4a", "m4b", "flac", "ogg", "opus"}
+
+
+def _check_queue_control(queue_id):
+    _cancelled, forced, paused = db.queue_control_flags(queue_id)
+    if forced:
+        raise CatalogError("Download cancelled")
+    if paused:
+        raise DownloadPaused("Download paused")
 
 
 def _response(url, *, headers=None):
@@ -79,8 +88,7 @@ def _stream(queue_id, url, target, *, expected="media", track_progress=True):
     try:
         with open(target, mode) as output:
             for chunk in response.iter_content(chunk_size=CHUNK_SIZE):
-                if db.is_queue_force_cancelled(queue_id):
-                    raise CatalogError("Download cancelled")
+                _check_queue_control(queue_id)
                 if chunk:
                     output.write(chunk)
                     downloaded += len(chunk)
@@ -220,8 +228,7 @@ def _install_archive(
         if not members:
             raise CatalogError("Audio archive contains no supported audio files")
         for index, member in enumerate(members, 1):
-            if db.is_queue_force_cancelled(queue_id):
-                raise CatalogError("Download cancelled")
+            _check_queue_control(queue_id)
             title = Path(member.filename).stem
             title = re.sub(r"^\s*\d+[._ -]*", "", title).strip() or f"Kapitel {index}"
             extension = Path(member.filename).suffix.lower().lstrip(".")

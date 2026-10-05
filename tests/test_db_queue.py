@@ -676,7 +676,41 @@ def test_counts_start_at_zero_for_every_status():
         "completed": 0,
         "failed": 0,
         "cancelled": 0,
+        "paused": 0,
         "active": 0,
         "finished": 0,
         "all": 0,
     }
+
+
+def test_paused_item_is_not_claimable_and_resumes_in_place(queue_item):
+    queue_id = queue_item(episodes=["ep1", "ep2", "ep3"])
+    db.update_queue_progress(queue_id, 1, "ep2")
+
+    assert db.pause_queue_item(queue_id) == (True, None)
+    item = db.get_queue_item(queue_id)
+    assert item["status"] == "queued"
+    assert item["pause_requested"] == 1
+    assert db.get_next_queued() is None
+    assert db.queue_counts()["paused"] == 1
+
+    assert db.resume_queue_item(queue_id) == (True, None)
+    item = db.get_queue_item(queue_id)
+    assert item["pause_requested"] == 0
+    assert item["current_episode"] == 1
+    assert db.get_next_queued()["id"] == queue_id
+
+
+def test_running_item_finishes_pause_transition(queue_item):
+    queue_id = queue_item()
+    db.set_queue_status(queue_id, "running")
+
+    assert db.pause_queue_item(queue_id) == (True, None)
+    assert db.get_queue_item(queue_id)["status"] == "running"
+    assert db.queue_control_flags(queue_id) == (False, False, True)
+
+    db.finish_pause(queue_id)
+    item = db.get_queue_item(queue_id)
+    assert item["status"] == "queued"
+    assert item["pause_requested"] == 1
+    assert item["paused_at"] is not None

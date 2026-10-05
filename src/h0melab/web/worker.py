@@ -137,10 +137,14 @@ def _process(item):
     selected_path = paths.target_path(item["language"], item.get("custom_path_id"))
     errors = []
 
-    for index, entry in enumerate(entries):
+    start_index = max(0, min(int(item.get("current_episode") or 0), len(entries)))
+    for index, entry in enumerate(entries[start_index:], start=start_index):
         url, extra = _episode_request(entry)
         provider = None
         try:
+            if db.queue_control_flags(queue_id)[2]:
+                db.finish_pause(queue_id)
+                return
             db.update_queue_progress(queue_id, index, url)
             provider, episode = _build_episode(url, extra, item, selected_path)
             from ..models.common.common import (
@@ -157,6 +161,13 @@ def _process(item):
                 clear_episode_download_context()
         except Exception as exc:
             captcha._local.queue_id = None
+            from ..models.common.common import DownloadPaused
+
+            if isinstance(exc, DownloadPaused):
+                logger.info("Download paused for queue item %s", queue_id)
+                db.update_queue_progress(queue_id, index, url)
+                db.finish_pause(queue_id)
+                return
             # A force cancel kills the download on purpose. Whatever it raised
             # on the way down is the cancel, not a failure worth showing.
             if db.cancel_flags(queue_id)[1]:
@@ -170,7 +181,11 @@ def _process(item):
                 errors.append(failure)
                 db.update_queue_errors(queue_id, errors)
 
-        cancelled, forced = db.cancel_flags(queue_id)
+        cancelled, forced, paused = db.queue_control_flags(queue_id)
+        if paused:
+            db.update_queue_progress(queue_id, index + 1, "")
+            db.finish_pause(queue_id)
+            return
         if cancelled:
             logger.info(
                 "Download %s for queue item %s",
@@ -208,17 +223,31 @@ def _process_catalog(item, entries):
 
     queue_id = item["id"]
     errors = []
-    for index, entry in enumerate(entries):
+    start_index = max(0, min(int(item.get("current_episode") or 0), len(entries)))
+    for index, entry in enumerate(entries[start_index:], start=start_index):
         label = entry.get("asset", {}).get("label") or entry.get("asset", {}).get("url", "")
         try:
+            if db.queue_control_flags(queue_id)[2]:
+                db.finish_pause(queue_id)
+                return
             db.update_queue_progress(queue_id, index, label)
             download_entry(queue_id, entry)
         except Exception as exc:
+            from ..models.common.common import DownloadPaused
+
+            if isinstance(exc, DownloadPaused):
+                db.update_queue_progress(queue_id, index, label)
+                db.finish_pause(queue_id)
+                return
             if not db.cancel_flags(queue_id)[1]:
                 logger.error("Catalog download failed for %s: %s", label, exc)
                 errors.append({"url": label, "error": str(exc)})
                 db.update_queue_errors(queue_id, errors)
-        cancelled, forced = db.cancel_flags(queue_id)
+        cancelled, forced, paused = db.queue_control_flags(queue_id)
+        if paused:
+            db.update_queue_progress(queue_id, index + 1, "")
+            db.finish_pause(queue_id)
+            return
         if cancelled:
             done = index if forced else index + 1
             db.update_queue_progress(queue_id, done, "")

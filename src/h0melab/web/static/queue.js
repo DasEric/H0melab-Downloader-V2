@@ -39,6 +39,7 @@
   const STATUS_LABELS = {
     queued: "Queued",
     running: "Running",
+    paused: "Paused",
     completed: "Done",
     failed: "Failed",
     cancelled: "Cancelled"
@@ -52,6 +53,14 @@
   // episode is written, so it needs a state of its own.
   function isStopping(item) {
     return item.status === "running" && Boolean(item.cancel_requested);
+  }
+
+  function isPaused(item) {
+    return item.status === "queued" && Boolean(item.pause_requested);
+  }
+
+  function isPausing(item) {
+    return item.status === "running" && Boolean(item.pause_requested);
   }
 
   function progressPercent(item, ffmpeg) {
@@ -170,10 +179,23 @@
 
   function renderActions(item) {
     const buttons = [];
-    if (item.status === "queued" && reorderable()) {
+    const paused = isPaused(item);
+    const pausing = isPausing(item);
+    if (item.status === "queued" && !paused && reorderable()) {
       buttons.push(
         `<button class="icon-btn" data-action="move" data-direction="up" data-id="${item.id}" title="Up">&uarr;</button>`,
         `<button class="icon-btn" data-action="move" data-direction="down" data-id="${item.id}" title="Down">&darr;</button>`
+      );
+    }
+    if (paused) {
+      const resume = t("queue.resume", "Resume");
+      buttons.push(
+        `<button class="icon-btn" data-action="resume" data-id="${item.id}" title="${resume}" aria-label="${resume}">&#9654;</button>`
+      );
+    } else if (ACTIVE.includes(item.status) && !pausing) {
+      const pause = t("queue.pause", "Pause");
+      buttons.push(
+        `<button class="icon-btn" data-action="pause" data-id="${item.id}" title="${pause}" aria-label="${pause}">&#10074;&#10074;</button>`
       );
     }
     if (ACTIVE.includes(item.status)) {
@@ -210,10 +232,20 @@
         : "";
 
     const stopping = isStopping(item);
-    const pill = stopping ? "status-cancelled" : `status-${item.status}`;
+    const paused = isPaused(item);
+    const pausing = isPausing(item);
+    const pill = stopping
+      ? "status-cancelled"
+      : paused || pausing
+        ? "status-paused"
+        : `status-${item.status}`;
     const label = stopping
       ? t("queue.status.stopping", "Stopping after this episode")
-      : statusLabel(item.status);
+      : pausing
+        ? t("queue.status.pausing", "Pausing")
+        : paused
+          ? statusLabel("paused")
+          : statusLabel(item.status);
 
     return `
       <div class="queue-item" data-item="${item.id}">
@@ -260,6 +292,8 @@
       item.title,
       item.status,
       isStopping(item),
+      isPaused(item),
+      isPausing(item),
       item.errors,
       item.captcha_url || "",
       item.total_episodes,
@@ -468,6 +502,8 @@
   const ENDPOINTS = {
     cancel: (id) => [`/api/queue/${id}/cancel`, "POST"],
     force: (id) => [`/api/queue/${id}/force-cancel`, "POST"],
+    pause: (id) => [`/api/queue/${id}/pause`, "POST"],
+    resume: (id) => [`/api/queue/${id}/resume`, "POST"],
     retry: (id) => [`/api/queue/${id}/retry`, "POST"],
     remove: (id) => [`/api/queue/${id}`, "DELETE"]
   };

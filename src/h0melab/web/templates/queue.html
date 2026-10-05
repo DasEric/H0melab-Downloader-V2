@@ -23,6 +23,10 @@
         <span data-i18n="queue.status.completed">Done</span>
         <span class="chip-count" data-count="completed">0</span>
       </button>
+      <button type="button" class="chip" data-status="paused">
+        <span data-i18n="queue.status.paused">Paused</span>
+        <span class="chip-count" data-count="paused">0</span>
+      </button>
       <button type="button" class="chip" data-status="failed">
         <span data-i18n="queue.status.failed">Failed</span>
         <span class="chip-count" data-count="failed">0</span>
@@ -72,5 +76,5 @@
 {# Keep this revision in step with queue progress markup.  The app version can
    stay unchanged between deployments, so it is not enough to evict an older
    queue.js that only renders the combined bar. #}
-<script src="{{ url_for('static', filename='queue.js') }}?v={{ app_version }}-fast-transfer-compact-progress-serienstream-soft-subs"></script>
+<script src="{{ url_for('static', filename='queue.js') }}?v={{ app_version }}-fast-transfer-compact-progress-serienstream-soft-subs-pause"></script>
 {% endblock %}

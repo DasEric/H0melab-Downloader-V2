@@ -56,6 +56,19 @@ def test_invalid_response_falls_back_to_next_domain(invalid_body):
     assert http.sto_host() == STO_DOMAINS[1]
 
 
+def test_browser_candidates_follow_the_last_working_http_host():
+    http._active_idx = 1
+
+    candidates = http.sto_browser_candidates(
+        "https://serienstream.to/serie/from/staffel-1/episode-2?x=1"
+    )
+
+    assert candidates == (
+        "https://serienstream.cx/serie/from/staffel-1/episode-2?x=1",
+        "https://serienstream.to/serie/from/staffel-1/episode-2?x=1",
+    )
+
+
 def test_invalid_body_rebuilds_the_calling_threads_session(monkeypatch):
     sessions = iter(
         [

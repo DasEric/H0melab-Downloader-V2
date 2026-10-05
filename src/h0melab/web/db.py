@@ -164,6 +164,9 @@ _SCHEMA = (
         discord_user_id TEXT,
         cancel_requested INTEGER NOT NULL DEFAULT 0,
         force_cancelled INTEGER NOT NULL DEFAULT 0,
+        pause_requested INTEGER NOT NULL DEFAULT 0,
+        paused_at TEXT,
+        paused_seconds INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         started_at TEXT,
         completed_at TEXT
@@ -290,6 +293,9 @@ _MIGRATIONS = {
         "discord_user_id": "TEXT",
         "cancel_requested": "INTEGER NOT NULL DEFAULT 0",
         "force_cancelled": "INTEGER NOT NULL DEFAULT 0",
+        "pause_requested": "INTEGER NOT NULL DEFAULT 0",
+        "paused_at": "TEXT",
+        "paused_seconds": "INTEGER NOT NULL DEFAULT 0",
         "started_at": "TEXT",
         "active_provider": "TEXT",
         "subtitle_language": "TEXT NOT NULL DEFAULT 'none'",
@@ -637,7 +643,10 @@ def finish_upcoming_queue(queue_id, queue_status):
 _DURATION_SQL = (
     "CASE WHEN started_at IS NULL THEN NULL ELSE MAX(0, "
     "CAST(strftime('%s', COALESCE(completed_at, 'now')) AS INTEGER) - "
-    "CAST(strftime('%s', started_at) AS INTEGER)) END AS duration_seconds"
+    "CAST(strftime('%s', started_at) AS INTEGER) - paused_seconds - "
+    "CASE WHEN paused_at IS NULL THEN 0 ELSE MAX(0, "
+    "CAST(strftime('%s', COALESCE(completed_at, 'now')) AS INTEGER) - "
+    "CAST(strftime('%s', paused_at) AS INTEGER)) END) END AS duration_seconds"
 )
 
 
@@ -646,7 +655,9 @@ _DURATION_SQL = (
 # sense. Everything that is done sits underneath, newest first, because that is
 # the one you just watched finish.
 _QUEUE_ORDER = (
-    "ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END, "
+    "ORDER BY CASE WHEN status = 'running' THEN 0 "
+    "WHEN status = 'queued' AND pause_requested = 0 THEN 1 "
+    "WHEN status = 'queued' THEN 2 ELSE 3 END, "
     "CASE WHEN status IN ('running', 'queued') THEN position END ASC, "
     "completed_at DESC, id DESC"
 )
@@ -686,6 +697,7 @@ _QUEUE_SLIM_COLUMNS = (
     "username, status, "
     "position, current_episode, current_url, errors, custom_path_id, source, "
     "captcha_url, discord_user_id, cancel_requested, force_cancelled, "
+    "pause_requested, paused_at, paused_seconds, current_bytes, total_bytes, "
     "created_at, started_at, completed_at"
 )
 
@@ -696,9 +708,14 @@ def _queue_filter(status=None, search=None):
     params = []
 
     if status:
-        wanted = _STATUS_GROUPS.get(status, (status,))
-        clauses.append(f"status IN ({','.join('?' * len(wanted))})")
-        params.extend(wanted)
+        if status == "paused":
+            clauses.append("status = 'queued' AND pause_requested = 1")
+        elif status == "queued":
+            clauses.append("status = 'queued' AND pause_requested = 0")
+        else:
+            wanted = _STATUS_GROUPS.get(status, (status,))
+            clauses.append(f"status IN ({','.join('?' * len(wanted))})")
+            params.extend(wanted)
 
     if search:
         clauses.append("title LIKE ? ESCAPE '\\'")
@@ -737,13 +754,18 @@ def queue_counts():
     """How many rows sit in each status, for the nav badge and the filter chips."""
     with session() as conn:
         rows = conn.execute(
-            "SELECT status, COUNT(*) AS n FROM download_queue GROUP BY status"
+            "SELECT status, pause_requested, COUNT(*) AS n FROM download_queue "
+            "GROUP BY status, pause_requested"
         ).fetchall()
 
     counts = {status: 0 for status in _QUEUE_STATUSES}
+    counts["paused"] = 0
     for row in rows:
-        counts[row["status"]] = row["n"]
-    counts["active"] = counts["queued"] + counts["running"]
+        if row["status"] == "queued" and row["pause_requested"]:
+            counts["paused"] += row["n"]
+        else:
+            counts[row["status"]] += row["n"]
+    counts["active"] = counts["queued"] + counts["running"] + counts["paused"]
     counts["finished"] = counts["completed"] + counts["failed"] + counts["cancelled"]
     counts["all"] = counts["active"] + counts["finished"]
     return counts
@@ -793,7 +815,7 @@ def get_next_queued():
     with session() as conn:
         return _row(
             conn,
-            "SELECT * FROM download_queue WHERE status = 'queued' "
+            "SELECT * FROM download_queue WHERE status = 'queued' AND pause_requested = 0 "
             "ORDER BY position ASC, id ASC LIMIT 1",
         )
 
@@ -856,7 +878,7 @@ def cancel_queue_item(queue_id, force=False):
     with session() as conn:
         item = _row(
             conn,
-            "SELECT status, cancel_requested FROM download_queue WHERE id = ?",
+            "SELECT status, cancel_requested, pause_requested FROM download_queue WHERE id = ?",
             (queue_id,),
         )
         if not item:
@@ -867,7 +889,11 @@ def cancel_queue_item(queue_id, force=False):
         if item["status"] == "queued":
             conn.execute(
                 "UPDATE download_queue SET status = 'cancelled', cancel_requested = 1, "
-                "force_cancelled = ?, completed_at = datetime('now') WHERE id = ?",
+                "force_cancelled = ?, pause_requested = 0, "
+                "paused_seconds = paused_seconds + CASE WHEN paused_at IS NULL THEN 0 "
+                "ELSE MAX(0, CAST(strftime('%s', 'now') AS INTEGER) - "
+                "CAST(strftime('%s', paused_at) AS INTEGER)) END, paused_at = NULL, "
+                "completed_at = datetime('now') WHERE id = ?",
                 (1 if force else 0, queue_id),
             )
         elif force:
@@ -876,12 +902,14 @@ def cancel_queue_item(queue_id, force=False):
             # still kills ffmpeg, and the worker setting it again is harmless.
             conn.execute(
                 "UPDATE download_queue SET status = 'cancelled', cancel_requested = 1, "
-                "force_cancelled = 1, completed_at = datetime('now') WHERE id = ?",
+                "force_cancelled = 1, pause_requested = 0, paused_at = NULL, "
+                "completed_at = datetime('now') WHERE id = ?",
                 (queue_id,),
             )
         else:
             conn.execute(
-                "UPDATE download_queue SET cancel_requested = 1 WHERE id = ?",
+                "UPDATE download_queue SET cancel_requested = 1, pause_requested = 0, "
+                "paused_at = NULL WHERE id = ?",
                 (queue_id,),
             )
     return True, None
@@ -911,6 +939,80 @@ def cancel_flags(queue_id):
     return bool(item["cancel_requested"]), bool(item["force_cancelled"])
 
 
+def queue_control_flags(queue_id):
+    """Return cancellation and pause flags for an active transfer."""
+    with session() as conn:
+        item = _row(
+            conn,
+            "SELECT cancel_requested, force_cancelled, pause_requested "
+            "FROM download_queue WHERE id = ?",
+            (queue_id,),
+        )
+    if not item:
+        return False, False, False
+    return (
+        bool(item["cancel_requested"]),
+        bool(item["force_cancelled"]),
+        bool(item["pause_requested"]),
+    )
+
+
+def pause_queue_item(queue_id):
+    """Pause a queued item now or ask a running transfer to stop resumably."""
+    with session() as conn:
+        item = _row(conn, "SELECT status FROM download_queue WHERE id = ?", (queue_id,))
+        if not item:
+            return False, "Item not found"
+        if item["status"] not in ("queued", "running"):
+            return False, "Only queued or running items can be paused"
+        if item["status"] == "queued":
+            conn.execute(
+                "UPDATE download_queue SET pause_requested = 1, "
+                "paused_at = COALESCE(paused_at, datetime('now')) WHERE id = ?",
+                (queue_id,),
+            )
+        else:
+            conn.execute(
+                "UPDATE download_queue SET pause_requested = 1 WHERE id = ?",
+                (queue_id,),
+            )
+    return True, None
+
+
+def finish_pause(queue_id):
+    """Commit the worker's transition from running to paused."""
+    with session() as conn:
+        conn.execute(
+            "UPDATE download_queue SET status = 'queued', pause_requested = 1, "
+            "paused_at = COALESCE(paused_at, datetime('now')), captcha_url = NULL, "
+            "active_provider = NULL WHERE id = ?",
+            (queue_id,),
+        )
+
+
+def resume_queue_item(queue_id):
+    """Make a paused item claimable without discarding completed progress."""
+    with session() as conn:
+        item = _row(
+            conn,
+            "SELECT status, pause_requested FROM download_queue WHERE id = ?",
+            (queue_id,),
+        )
+        if not item:
+            return False, "Item not found"
+        if item["status"] != "queued" or not item["pause_requested"]:
+            return False, "Only paused items can be resumed"
+        conn.execute(
+            "UPDATE download_queue SET pause_requested = 0, "
+            "paused_seconds = paused_seconds + CASE WHEN paused_at IS NULL THEN 0 "
+            "ELSE MAX(0, CAST(strftime('%s', 'now') AS INTEGER) - "
+            "CAST(strftime('%s', paused_at) AS INTEGER)) END, paused_at = NULL "
+            "WHERE id = ?",
+            (queue_id,),
+        )
+    return True, None
+
+
 def requeue_item(queue_id):
     with session() as conn:
         item = _row(conn, "SELECT status FROM download_queue WHERE id = ?", (queue_id,))
@@ -920,6 +1022,7 @@ def requeue_item(queue_id):
             "UPDATE download_queue SET status = 'queued', errors = '[]', "
             "current_episode = 0, current_url = NULL, started_at = NULL, "
             "completed_at = NULL, cancel_requested = 0, force_cancelled = 0, "
+            "pause_requested = 0, paused_at = NULL, paused_seconds = 0, "
             "captcha_url = NULL, active_provider = NULL WHERE id = ?",
             (queue_id,),
         )
@@ -944,12 +1047,12 @@ def move_queue_item(queue_id, direction):
     with session() as conn:
         item = _row(
             conn,
-            "SELECT id, position, status FROM download_queue WHERE id = ?",
+            "SELECT id, position, status, pause_requested FROM download_queue WHERE id = ?",
             (queue_id,),
         )
         if not item:
             return False, "Item not found"
-        if item["status"] != "queued":
+        if item["status"] != "queued" or item.get("pause_requested"):
             return False, "Only queued items can be moved"
 
         comparison, order = ("<", "DESC") if direction == "up" else (">", "ASC")
@@ -983,6 +1086,11 @@ def clear_completed():
 def reset_stale_running():
     """Requeue items left 'running' by a previous process that died."""
     with session() as conn:
+        conn.execute(
+            "UPDATE download_queue SET status = 'queued', captcha_url = NULL, "
+            "paused_at = COALESCE(paused_at, datetime('now')) "
+            "WHERE status = 'running' AND pause_requested = 1"
+        )
         conn.execute(
             "UPDATE download_queue SET status = 'queued', captcha_url = NULL, "
             "started_at = NULL, cancel_requested = 0, force_cancelled = 0 "

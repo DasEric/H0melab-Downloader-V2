@@ -29,6 +29,12 @@ def register(bp):
     bp.add_url_rule(
         "/queue/<int:queue_id>/retry", view_func=retry_item, methods=["POST"]
     )
+    bp.add_url_rule(
+        "/queue/<int:queue_id>/pause", view_func=pause_item, methods=["POST"]
+    )
+    bp.add_url_rule(
+        "/queue/<int:queue_id>/resume", view_func=resume_item, methods=["POST"]
+    )
     bp.add_url_rule("/captcha/<int:queue_id>/screenshot", view_func=captcha_screenshot)
     bp.add_url_rule("/captcha/<int:queue_id>/status", view_func=captcha_status)
     bp.add_url_rule(
@@ -98,7 +104,16 @@ def _tag_mangafire(episodes, requested_format):
 
 # What ?status= accepts: a real status, or one of the two groups.
 _STATUS_FILTERS = frozenset(
-    ("queued", "running", "completed", "failed", "cancelled", "active", "finished")
+    (
+        "queued",
+        "running",
+        "paused",
+        "completed",
+        "failed",
+        "cancelled",
+        "active",
+        "finished",
+    )
 )
 _SORTS = frozenset(("smart", "newest", "oldest", "title"))
 
@@ -193,6 +208,18 @@ def retry_item(queue_id):
     """Re-queue a failed or cancelled item, e.g. after solving the kinox captcha."""
     if not db.requeue_item(queue_id):
         return jsonify({"error": "Item not found or not retryable"}), 400
+    worker.ensure_started()
+    return jsonify({"ok": True})
+
+
+def pause_item(queue_id):
+    return _result(*db.pause_queue_item(queue_id))
+
+
+def resume_item(queue_id):
+    ok, error = db.resume_queue_item(queue_id)
+    if not ok:
+        return jsonify({"error": error}), 400
     worker.ensure_started()
     return jsonify({"ok": True})
 

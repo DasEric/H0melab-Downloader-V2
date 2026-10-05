@@ -256,6 +256,20 @@ def test_force_cancel_stops_a_running_item(client, queue_item):
     assert db.cancel_flags(queue_id) == (True, True)
 
 
+def test_pause_and_resume(client, queue_item):
+    queue_id = queue_item()
+
+    assert client.post(f"/api/queue/{queue_id}/pause").status_code == 200
+    assert db.get_queue_item(queue_id)["pause_requested"] == 1
+    assert client.post(f"/api/queue/{queue_id}/resume").status_code == 200
+    assert db.get_queue_item(queue_id)["pause_requested"] == 0
+
+
+def test_resume_requires_a_paused_item(client, queue_item):
+    queue_id = queue_item()
+    assert client.post(f"/api/queue/{queue_id}/resume").status_code == 400
+
+
 def test_cancelling_a_finished_item_is_a_client_error(client, queue_item):
     queue_id = queue_item()
     db.set_queue_status(queue_id, "completed")

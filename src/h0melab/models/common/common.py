@@ -538,6 +538,31 @@ class DownloadCancelled(Exception):
     """Raised when we killed the download ourselves, not when it failed."""
 
 
+class DownloadPaused(Exception):
+    """Raised when a queue transfer stopped at a resumable checkpoint."""
+
+
+def _raise_for_queue_control():
+    """Raise the internal control exception requested by the current queue row."""
+    try:
+        from ...playwright.captcha import _local
+        from ...web.db import queue_control_flags
+
+        queue_id = getattr(_local, "queue_id", None)
+        if queue_id is None:
+            return
+        _cancelled, forced, paused = queue_control_flags(queue_id)
+        if forced:
+            raise DownloadCancelled("Download cancelled")
+        if paused:
+            raise DownloadPaused("Download paused")
+    except (DownloadCancelled, DownloadPaused):
+        raise
+    except Exception:
+        # CLI downloads and tests do not necessarily initialise the web DB.
+        return
+
+
 def _run_ffmpeg_with_progress(
     node,
     overwrite_output=True,
@@ -617,7 +642,7 @@ def _run_ffmpeg_with_progress(
     last_time = None
     last_change = time.monotonic()
     total_duration = 0.0
-    cancelled = False
+    stopped = None
 
     with _ffmpeg_progress_lock:
         _ffmpeg_progress.update(
@@ -626,6 +651,13 @@ def _run_ffmpeg_with_progress(
 
     try:
         while True:
+            try:
+                _raise_for_queue_control()
+            except (DownloadCancelled, DownloadPaused) as exc:
+                stopped = exc
+                logger.info("[FFmpeg] %s requested, stopping.", str(exc))
+                process.kill()
+                break
             try:
                 line_str = line_queue.get(timeout=1.0)
             except queue.Empty:
@@ -705,18 +737,6 @@ def _run_ffmpeg_with_progress(
                     process.kill()
                     break
 
-                try:
-                    from ...playwright.captcha import _local
-                    from ...web.db import is_queue_force_cancelled
-
-                    qid = getattr(_local, "queue_id", None)
-                    if qid is not None and is_queue_force_cancelled(qid):
-                        logger.info("[FFmpeg] Force cancel requested, stopping.")
-                        cancelled = True
-                        process.kill()
-                        break
-                except Exception:
-                    pass
             elif line_str:
                 # Try to capture total duration from ffmpeg header
                 if total_duration == 0.0:
@@ -754,8 +774,8 @@ def _run_ffmpeg_with_progress(
     process.wait()
     # We killed it on purpose, so the non-zero exit code and whatever ffmpeg
     # printed on its way out are not worth reporting.
-    if cancelled:
-        raise DownloadCancelled("Download cancelled")
+    if stopped is not None:
+        raise stopped
     if process.returncode != 0:
         detail = (
             "\n".join(stderr_lines[-20:])
@@ -963,6 +983,9 @@ def _download_http_file(
 
         request_headers = {"User-Agent": DEFAULT_USER_AGENT}
         request_headers.update(headers or {})
+        offset = output_path.stat().st_size if output_path.exists() else 0
+        if offset:
+            request_headers["Range"] = f"bytes={offset}-"
         logger.debug(f"[DOWNLOADING] {label} via direct HTTP")
         response = niquests.get(
             stream_url,
@@ -972,13 +995,18 @@ def _download_http_file(
         )
         response.raise_for_status()
 
+        if offset and response.status_code != 206:
+            offset = 0
+
         try:
             total = int(response.headers.get("Content-Length", 0))
         except (TypeError, ValueError):
             total = 0
-        downloaded = 0
+        downloaded = offset
+        if total:
+            total += offset
         last_ts = time.monotonic()
-        last_bytes = 0
+        last_bytes = offset
         last_cancel_check = float("-inf")
 
         with _ffmpeg_progress_lock:
@@ -987,7 +1015,7 @@ def _download_http_file(
             )
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "wb") as f:
+        with open(output_path, "ab" if offset else "wb") as f:
             for chunk in response.iter_content(chunk_size=1024 * 1024):
                 if not chunk:
                     continue
@@ -1006,17 +1034,7 @@ def _download_http_file(
                 now = time.monotonic()
                 if now - last_cancel_check >= 0.5:
                     last_cancel_check = now
-                    try:
-                        from ...playwright.captcha import _local
-                        from ...web.db import is_queue_force_cancelled
-
-                        queue_id = getattr(_local, "queue_id", None)
-                        if queue_id is not None and is_queue_force_cancelled(queue_id):
-                            raise DownloadCancelled("Download cancelled")
-                    except DownloadCancelled:
-                        raise
-                    except Exception:
-                        pass
+                    _raise_for_queue_control()
                 elapsed = now - last_ts
                 bandwidth = ""
                 if elapsed >= 0.5:
@@ -1046,6 +1064,8 @@ def _download_http_file(
         if sys.stderr.isatty():
             sys.stderr.write("\r" + " " * 80 + "\r")
             sys.stderr.flush()
+    except DownloadPaused:
+        raise
     except Exception:
         output_path.unlink(missing_ok=True)
         raise
@@ -1400,6 +1420,8 @@ def _try_parallel_hls(
             keep_progress=True,
             concurrency=_episode_hls_concurrency(),
         )
+    except DownloadPaused:
+        raise
     except DownloadCancelled:
         raise
     except HLSUnsupported as exc:
@@ -1442,17 +1464,7 @@ def _download_full_stream(
         from .transfer import download_with_ytdlp
 
         def _ytdlp_progress(data):
-            try:
-                from ...playwright.captcha import _local
-                from ...web.db import is_queue_force_cancelled
-
-                queue_id = getattr(_local, "queue_id", None)
-                if queue_id is not None and is_queue_force_cancelled(queue_id):
-                    raise DownloadCancelled("Download cancelled")
-            except DownloadCancelled:
-                raise
-            except Exception:
-                pass
+            _raise_for_queue_control()
             status = data.get("status")
             total = data.get("total_bytes") or data.get("total_bytes_estimate") or 0
             downloaded = data.get("downloaded_bytes") or 0
@@ -1479,15 +1491,17 @@ def _download_full_stream(
         with _ffmpeg_progress_lock:
             _ffmpeg_progress.update(percent=95.0, active=True)
         return True
+    except DownloadPaused:
+        raise
     except DownloadCancelled:
         temp_full.unlink(missing_ok=True)
         raise
     except Exception as exc:
         cause = exc
         while cause is not None:
-            if isinstance(cause, DownloadCancelled) or "Download cancelled" in str(
-                cause
-            ):
+            if isinstance(cause, DownloadPaused) or "Download paused" in str(cause):
+                raise DownloadPaused("Download paused") from exc
+            if isinstance(cause, DownloadCancelled) or "Download cancelled" in str(cause):
                 temp_full.unlink(missing_ok=True)
                 temp_full.with_name(temp_full.name + ".part").unlink(missing_ok=True)
                 temp_full.with_name(temp_full.name + ".ytdl").unlink(missing_ok=True)
@@ -1501,6 +1515,7 @@ def _download_full_stream(
 
     if direct_http:
         direct_source = temp_full.with_suffix(".direct.mp4")
+        paused = False
         try:
             _download_http_file(
                 direct_source,
@@ -1523,8 +1538,12 @@ def _download_full_stream(
                 keep_progress=True,
             )
             return True
+        except DownloadPaused:
+            paused = True
+            raise
         finally:
-            direct_source.unlink(missing_ok=True)
+            if not paused:
+                direct_source.unlink(missing_ok=True)
 
     parallel_remux_failed = False
     if parallel_hls:
@@ -1957,6 +1976,11 @@ def download(self):
                     self._base_folder,
                     protected=getattr(self, "selected_path", None),
                 )
+                raise
+
+            except DownloadPaused:
+                # Keep resumable transfer artefacts and retry the same episode
+                # after the queue item is resumed.
                 raise
 
             except Exception as e:
