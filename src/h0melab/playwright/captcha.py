@@ -3,9 +3,8 @@
 Ported/merged from MediaForge (https://github.com/PD-Codes/MediaForge) by
 PD-Codes — the hardened detection/solving logic below (ad-overlay defence,
 network ad-blocking, fingerprint hardening, multi-widget challenge solver)
-originates there and was adapted to this project (env vars renamed
-Legacy variable migration, DNS-routing dropped, H0melab Downloader integration
-helpers such as the hanime/cineby stream sniffers kept as-is).
+originates there and was adapted to this project. Environment variables use
+the H0MELAB prefix; the legacy hanime/cineby stream sniffers remain integrated.
 
 Streaming sites fronted by Cloudflare (serienstream.to, aniworld.to,
 filmpalast.to, ...) occasionally serve a Turnstile challenge instead of the
@@ -38,6 +37,7 @@ import queue as _queue_module
 import random as _random
 import threading as _threading
 import time as _time
+from contextlib import ExitStack
 
 # Threading-local: set queue_id from the web worker to enable interactive mode
 _local = _threading.local()
@@ -205,9 +205,34 @@ _AD_SAFE_HOST_SUFFIXES = (
 )
 
 
+def _is_provider_result_url(url) -> bool:
+    """A result must leave every source mirror and the CAPTCHA infrastructure."""
+    from urllib.parse import urlsplit
+
+    from ..config import is_sto_host
+
+    if not isinstance(url, str) or not url.strip():
+        return False
+    try:
+        parsed = urlsplit(url.strip())
+        return (
+            parsed.scheme in ("http", "https")
+            and bool(parsed.hostname)
+            and parsed.username is None
+            and not is_sto_host(url.strip())
+            and not _is_captcha_infra_url(url)
+        )
+    except ValueError:
+        return False
+
+
 def _ad_host_allowed(host: str, home_netloc: str) -> bool:
     """True when *host* may load during captcha solving (i.e. is not an ad)."""
     if not host:
+        return True
+    from ..config import is_sto_host
+
+    if is_sto_host("https://" + host):
         return True
     home = home_netloc.lower()
     home = home.removeprefix("www.")
@@ -609,6 +634,7 @@ class _BrowserHandle:
             except Exception:
                 pass
         if self._got_lock:
+            self._got_lock = False
             try:
                 _PROFILE_LOCK.release()
             except Exception:
@@ -616,7 +642,7 @@ class _BrowserHandle:
 
 
 def _launch_browser_context(
-    p, offscreen=False, ad_home=None, weiter_event=None, headless=False
+    p, offscreen=False, ad_home=None, weiter_event=None, headless=False, dns_hosts=None
 ) -> _BrowserHandle:
     """Launch a hardened patchright context.
 
@@ -634,28 +660,34 @@ def _launch_browser_context(
         )
 
     args = _stealth_launch_args(offscreen)
+    if dns_hosts:
+        from ..models.common.common import _raise_for_queue_control
+        from .dns import browser_dns_args
+
+        args.extend(browser_dns_args(dns_hosts, check_control=_raise_for_queue_control))
     ctx_kwargs = _stealth_context_kwargs()
     browser = None
     context = None
     got_lock = False
-    if _persistent_profile_enabled() and _PROFILE_LOCK.acquire(blocking=False):
-        got_lock = True
-        try:
-            context = p.chromium.launch_persistent_context(
-                _resolve_profile_dir(), headless=headless, args=args, **ctx_kwargs
-            )
-        except Exception:
-            context = None
+    try:
+        if _persistent_profile_enabled() and _PROFILE_LOCK.acquire(blocking=False):
+            got_lock = True
             try:
-                _PROFILE_LOCK.release()
+                context = p.chromium.launch_persistent_context(
+                    _resolve_profile_dir(), headless=headless, args=args, **ctx_kwargs
+                )
             except Exception:
-                pass
-            got_lock = False
-    if context is None:
-        browser = p.chromium.launch(headless=headless, args=args)
-        context = browser.new_context(**ctx_kwargs)
-    _install_stealth(context, ad_home=ad_home, weiter_event=weiter_event)
-    return _BrowserHandle(context, browser, got_lock)
+                context = None
+                _PROFILE_LOCK.release()
+                got_lock = False
+        if context is None:
+            browser = p.chromium.launch(headless=headless, args=args)
+            context = browser.new_context(**ctx_kwargs)
+        _install_stealth(context, ad_home=ad_home, weiter_event=weiter_event)
+        return _BrowserHandle(context, browser, got_lock)
+    except BaseException:
+        _BrowserHandle(context, browser, got_lock).close()
+        raise
 
 
 def _click_turnstile(page, logger=None) -> bool:
@@ -2149,14 +2181,18 @@ def playwright_get_veev_stream_url(url: str, timeout: int = 30) -> str:
 
 _STO_NAVIGATION_ERRORS = (
     "ERR_NAME_NOT_RESOLVED",
+    "ERR_NAME_RESOLUTION_FAILED",
     "ERR_CONNECTION_REFUSED",
+    "ERR_CONNECTION_RESET",
     "ERR_CONNECTION_TIMED_OUT",
     "ERR_CONNECTION_CLOSED",
     "ERR_NETWORK_CHANGED",
 )
 
 
-def _open_sto_episode_with_fallback(page, episode_url, redirect_url, logger):
+def _open_sto_episode_with_fallback(
+    page, episode_url, redirect_url, logger, context=None
+):
     """Open an episode with the HTTP layer's current domain preference.
 
     Only network-level navigation failures advance to the next domain. Page or
@@ -2164,31 +2200,53 @@ def _open_sto_episode_with_fallback(page, episode_url, redirect_url, logger):
     """
     from urllib.parse import urlparse
 
-    from ..models.s_to.http import sto_browser_candidates
+    from ..models.common.common import _raise_for_queue_control
+    from ..models.s_to.http import (
+        SerienstreamNavigationError,
+        _safe_url,
+        sto_browser_candidates,
+        sto_browser_redirect,
+    )
+    from .dns import clear_browser_dns_cache
 
     episode_candidates = sto_browser_candidates(episode_url)
-    redirect_candidates = sto_browser_candidates(redirect_url) if redirect_url else ()
+    failures = []
     last_error = None
     for index, candidate in enumerate(episode_candidates):
-        candidate_redirect = (
-            redirect_candidates[index]
-            if index < len(redirect_candidates)
-            else redirect_url
-        )
+        _raise_for_queue_control()
+        if context is not None:
+            _inject_session_cookies(context, candidate)
         try:
-            logger.debug(f"Opening episode page for modal solving: {candidate}")
-            page.goto(candidate, wait_until="domcontentloaded")
-            return candidate, candidate_redirect
+            logger.debug(
+                "Opening SerienStream page for modal solving: %s", _safe_url(candidate)
+            )
+            page.goto(candidate, wait_until="domcontentloaded", timeout=30000)
+            actual_url = getattr(page, "url", None)
+            opened_url = actual_url if isinstance(actual_url, str) else candidate
+            if not opened_url or opened_url == "about:blank":
+                opened_url = candidate
+            return opened_url, sto_browser_redirect(redirect_url, opened_url)
         except Exception as exc:
             last_error = exc
-            if not any(marker in str(exc) for marker in _STO_NAVIGATION_ERRORS):
+            reason = next(
+                (marker for marker in _STO_NAVIGATION_ERRORS if marker in str(exc)),
+                None,
+            )
+            if reason is None:
                 raise
+            host = urlparse(candidate).hostname or "unknown host"
+            failures.append((host, reason))
+            clear_browser_dns_cache(host)
             logger.warning(
-                "SerienStream browser navigation failed for %s; trying the next domain",
-                urlparse(candidate).netloc,
+                "SerienStream browser navigation failed for %s (%s); %s",
+                host,
+                reason,
+                "trying the next domain"
+                if index + 1 < len(episode_candidates)
+                else "no configured domains remain",
             )
     if last_error is not None:
-        raise last_error
+        raise SerienstreamNavigationError(failures) from last_error
     raise RuntimeError("No SerienStream browser domain is available")
 
 
@@ -2199,13 +2257,11 @@ def solve_sto_modal(
     redirect_url: str | None = None,
 ):
     """
-    Navigate to the provider redirect URL (or fall back to the episode page),
-    solve any Turnstile modal that appears, and return the player-iframe URL
+    Open the episode page, handle its modal, and return the player-iframe URL
     (e.g. voe.sx/e/...).  Works in CLI and WebUI mode.
 
-    redirect_url — the provider-specific /r?t=... link; when supplied the
-    browser navigates there directly so the Turnstile modal is triggered
-    immediately without needing to click a provider button first.
+    redirect_url identifies the provider-specific play button on the episode
+    page. A top-level GET to /r is only a legacy fallback when no button matches.
 
     Returns the provider URL on success, None on timeout.
 
@@ -2226,6 +2282,7 @@ def solve_sto_modal(
         DownloadPaused,
         _raise_for_queue_control,
     )
+    from ..models.s_to.http import SerienstreamNavigationError
 
     logger = get_logger(__name__)
 
@@ -2255,14 +2312,9 @@ def solve_sto_modal(
         # and not by a top-level GET — so we open the episode page and click.
         from urllib.parse import urlparse as _urlparse
 
-        from ..models.s_to.http import sto_browser_candidates
+        from ..config import STO_DOMAINS
 
-        start_url = sto_browser_candidates(episode_url)[0]
-        active_redirect_url = (
-            sto_browser_candidates(redirect_url)[0] if redirect_url else None
-        )
-
-        with sync_playwright() as p:
+        with sync_playwright() as p, ExitStack() as browser_cleanup:
             # Episode-page netloc — the "home" domain.  Any other netloc is
             # either an ad (blocked) or the provider result (allowed post-submit).
             sto_netloc = _urlparse(episode_url).netloc
@@ -2279,10 +2331,11 @@ def solve_sto_modal(
                 and not _env_flag("H0MELAB_CAPTCHA_VISIBLE"),
                 ad_home=sto_netloc,
                 weiter_event=_weiter_submitted,
+                dns_hosts=tuple(STO_DOMAINS),
             )
+            browser_cleanup.callback(_handle.close)
             context = _handle.context
 
-            _inject_session_cookies(context, episode_url)
             page = context.new_page()
             _attach_debug_listeners(page, logger)
 
@@ -2314,9 +2367,7 @@ def solve_sto_modal(
                     pu = new_pg.url
                     if not pu or pu in ("about:blank", ""):
                         return
-                    from urllib.parse import urlparse as _up2
-
-                    if _up2(pu).netloc == sto_netloc:
+                    if not _is_provider_result_url(pu):
                         return  # still on the episode site — not a provider result
                     # Keep if: Weiter was already submitted, OR it's a known provider
                     if _weiter_submitted.is_set() or _is_known_provider_url(pu):
@@ -2339,7 +2390,7 @@ def solve_sto_modal(
             context.on("page", _on_new_page)
 
             start_url, active_redirect_url = _open_sto_episode_with_fallback(
-                page, episode_url, redirect_url, logger
+                page, episode_url, redirect_url, logger, context=context
             )
             sto_netloc = _urlparse(start_url).netloc
             _focus_page(page)
@@ -2358,28 +2409,35 @@ def solve_sto_modal(
                 play_path = _sp.path + (("?" + _sp.query) if _sp.query else "")
 
             clicked = False
-            if play_path:
-                try:
-                    clicked = page.evaluate(
-                        """(playPath) => {
-                            const els = document.querySelectorAll('[data-play-url]');
-                            for (const el of els) {
-                                if (el.getAttribute('data-play-url') === playPath) {
-                                    el.scrollIntoView({block: 'center'});
-                                    el.click();
-                                    return true;
-                                }
-                            }
-                            return false;
+            try:
+                clicked = page.evaluate(
+                    """({playPath, provider, language}) => {
+                            const els = [...document.querySelectorAll('[data-play-url]')];
+                            const selected = els.filter(el =>
+                                el.getAttribute('data-provider-name') === provider &&
+                                el.getAttribute('data-language-label') === language);
+                            const el = selected.find(el =>
+                                el.getAttribute('data-play-url') === playPath
+                            ) || selected[0];
+                            if (!el) return false;
+                            el.scrollIntoView({block: 'center'});
+                            el.click();
+                            return true;
                         }""",
-                        play_path,
-                    )
-                except Exception as _e:
-                    logger.debug(f"Provider-button click failed: {_e}")
+                    {
+                        "playPath": play_path,
+                        "provider": provider_name,
+                        "language": language_label,
+                    },
+                )
+            except Exception as _e:
+                logger.debug("Provider-button click failed (%s)", type(_e).__name__)
 
             if clicked:
                 logger.debug(
-                    f"Clicked provider button ({play_path}) — waiting for Turnstile modal"
+                    "Clicked provider button (%s, %s) — waiting for Turnstile modal",
+                    provider_name,
+                    language_label,
                 )
                 page.wait_for_timeout(1500)
                 _remove_ad_overlays(page)
@@ -2392,7 +2450,13 @@ def solve_sto_modal(
                     "falling back to direct redirect navigation"
                 )
                 if active_redirect_url:
-                    page.goto(active_redirect_url, wait_until="domcontentloaded")
+                    start_url, active_redirect_url = _open_sto_episode_with_fallback(
+                        page,
+                        active_redirect_url,
+                        active_redirect_url,
+                        logger,
+                        context=context,
+                    )
 
             final_url = None
             weiter_clicked = False
@@ -2424,17 +2488,12 @@ def solve_sto_modal(
                 # 1. player-iframe by name (classic site behaviour).
                 #    IMPORTANT: the form POST to /r first loads an intermediate
                 #    redirect page into the iframe before the final provider
-                #    URL arrives.  We must skip any URL still on sto_netloc so
+                #    URL arrives. We must skip every source mirror so
                 #    we don't hand a serienstream.to URL to the VOE extractor.
                 for frame in page.frames:
                     if frame.name == "player-iframe":
                         fu = frame.url
-                        if (
-                            fu
-                            and fu != "about:blank"
-                            and _urlparse(fu).netloc not in ("", sto_netloc)
-                            and not _is_captcha_infra_url(fu)
-                        ):
+                        if _is_provider_result_url(fu):
                             final_url = fu
                             break
                 if final_url:
@@ -2453,10 +2512,8 @@ def solve_sto_modal(
                         fu = frame.url
                         if not fu or fu in ("about:blank", "", start_url, episode_url):
                             continue
-                        if _urlparse(fu).netloc in ("", sto_netloc):
+                        if not _is_provider_result_url(fu):
                             continue
-                        if _is_captcha_infra_url(fu):
-                            continue  # Turnstile widget, not the provider
                         if weiter_clicked or _is_known_provider_url(fu):
                             final_url = fu
                             logger.warning(f"Foreign iframe URL found: {final_url}")
@@ -2470,11 +2527,9 @@ def solve_sto_modal(
                 if not final_url:
                     try:
                         pu = page.url
-                        if (
-                            pu
-                            and _urlparse(pu).netloc not in ("", sto_netloc)
-                            and not _is_captcha_infra_url(pu)
-                        ) and (weiter_clicked or _is_known_provider_url(pu)):
+                        if _is_provider_result_url(pu) and (
+                            weiter_clicked or _is_known_provider_url(pu)
+                        ):
                             final_url = pu
                             logger.warning(f"Page navigated to provider: {final_url}")
                     except Exception:
@@ -2488,7 +2543,7 @@ def solve_sto_modal(
                 #    captured.
                 with _ad_tab_lock:
                     for _u in reversed(_provider_tab_urls):
-                        if not _is_captcha_infra_url(_u):
+                        if _is_provider_result_url(_u):
                             final_url = _u
                             break
                 if final_url:
@@ -2527,8 +2582,6 @@ def solve_sto_modal(
                 except Exception:
                     pass
 
-            _handle.close()
-
         with _captcha_state_lock:
             _captcha_state = None
 
@@ -2539,6 +2592,11 @@ def solve_sto_modal(
         return final_url
 
     except (DownloadCancelled, DownloadPaused):
+        with _captcha_state_lock:
+            _captcha_state = None
+        raise
+    except SerienstreamNavigationError as exc:
+        logger.error("%s", exc)
         with _captcha_state_lock:
             _captcha_state = None
         raise

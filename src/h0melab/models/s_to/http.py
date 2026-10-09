@@ -33,6 +33,18 @@ class SerienstreamResponseError(RuntimeError):
     """A serienstream host answered, but did not return usable page HTML."""
 
 
+class SerienstreamNavigationError(RuntimeError):
+    """All browser mirrors failed; repeating the same provider cannot fix it."""
+
+    def __init__(self, failures):
+        self.failures = tuple(failures)
+        details = "; ".join(f"{host} ({reason})" for host, reason in self.failures)
+        super().__init__(
+            "SerienStream browser navigation failed for all configured domains: "
+            + details
+        )
+
+
 def _global_headers():
     """Copy browser-compatible headers without optional Brotli encoding."""
     headers = dict(GLOBAL_SESSION.headers)
@@ -166,6 +178,18 @@ def sto_browser_candidates(url):
     ]
     return tuple(
         _HOST_RE.sub(r"\1" + host, str(url), count=1) for host in ordered
+    )
+
+
+def sto_browser_redirect(redirect_url, opened_url):
+    """Pair a redirect with the opened mirror without another global snapshot."""
+    if not redirect_url or not _HOST_RE.match(str(redirect_url)):
+        return redirect_url
+    if not isinstance(opened_url, str) or not _HOST_RE.match(opened_url):
+        return redirect_url
+    opened = urlsplit(opened_url)
+    return urlunsplit(
+        urlsplit(redirect_url)._replace(scheme=opened.scheme, netloc=opened.netloc)
     )
 
 

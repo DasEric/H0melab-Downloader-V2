@@ -312,20 +312,17 @@ class SerienstreamEpisode:
     @property
     def provider_url(self):
         if self.__provider_url is None:
-            from urllib.parse import urlparse
-
-            from ...playwright.captcha import solve_sto_modal
+            from ...playwright.captcha import _is_provider_result_url, solve_sto_modal
 
             # Try plain HTTP first — works when no modal is shown
             resp = sto_get(self.redirect_url)
-            if urlparse(resp.url).netloc != urlparse(self.redirect_url).netloc:
-                # Redirect left serienstream.to — no modal, plain session worked
-                self.__provider_url = resp.url
+            if _is_provider_result_url(resp.url):
+                # A different SerienStream mirror is still the source site.
+                result = resp.url
             else:
                 # Still on serienstream.to — modal was shown, need browser
                 _lang_map = {Audio.GERMAN: "Deutsch", Audio.ENGLISH: "Englisch"}
-                lang = self.selected_language
-                audio = lang[0] if isinstance(lang, tuple) else lang
+                audio = self._normalize_language(self.selected_language)[0]
                 language_label = _lang_map.get(audio, "Deutsch")
 
                 result = solve_sto_modal(
@@ -334,20 +331,12 @@ class SerienstreamEpisode:
                     language_label,
                     redirect_url=self.redirect_url,
                 )
-                self.__provider_url = result if result else resp.url
-
-            parsed_provider = urlparse((self.__provider_url or "").strip())
-            redirect_netloc = urlparse(self.redirect_url).netloc
-            if (
-                not parsed_provider.scheme
-                or not parsed_provider.netloc
-                or parsed_provider.netloc == redirect_netloc
-            ):
-                self.__provider_url = None
+            if not _is_provider_result_url(result):
                 raise ValueError(
                     f"Failed to resolve provider URL for {self.selected_provider} "
-                    f"from redirect {self.redirect_url}"
+                    "from SerienStream"
                 )
+            self.__provider_url = result
         return self.__provider_url
 
     @property
