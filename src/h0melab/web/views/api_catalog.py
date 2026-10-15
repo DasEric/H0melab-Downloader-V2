@@ -10,7 +10,6 @@ from ...catalog import get_source, source_summaries
 from ...catalog.common import CatalogError, ensure_public_url, get
 from ...models.common.library_layout import LibraryItem, media_path
 from .. import db, settings_store, worker
-from ..search_contract import relevant_results
 
 _COVER_TYPES = {"image/avif", "image/gif", "image/jpeg", "image/png", "image/webp"}
 
@@ -101,9 +100,6 @@ def catalog_browse():
     try:
         page = max(1, min(int(request.args.get("page", 1)), 100))
         source = _source()
-        category = (request.args.get("category") or "").strip()
-        if category and category != source.media_kind:
-            raise CatalogError("Source does not support this category")
         found = source.browse(page=page)
     except (CatalogError, ValueError) as exc:
         return _catalog_error(exc)
@@ -135,14 +131,11 @@ def catalog_search():
     try:
         page = max(1, min(int(request.args.get("page", 1)), 100))
         source = _source()
-        category = (request.args.get("category") or "").strip()
-        if category and category != source.media_kind:
-            raise CatalogError("Source does not support this category")
         found = source.search(query, page=page)
     except (CatalogError, ValueError) as exc:
         return _catalog_error(exc)
     return jsonify(
-        {"items": relevant_results([_proxy_cover(item.as_dict()) for item in found], query), "page": page}
+        {"items": [_proxy_cover(item.as_dict()) for item in found], "page": page}
     )
 
 

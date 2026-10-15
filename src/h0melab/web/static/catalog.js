@@ -16,9 +16,6 @@
   const modalContent = el("catalogContent");
   const formatSelect = el("catalogFormat");
   const downloadButton = el("catalogDownloadBtn");
-  const categorySelect = el("mediaCategory");
-  let category = categorySelect.value;
-  let allSources = [];
   let generation = 0;
   let detailGeneration = 0;
 
@@ -112,8 +109,7 @@
   async function init() {
     try {
       const data = await apiFetch("/api/catalog/sources");
-      allSources = data.sources || [];
-      sources = allSources.filter((source) => source.media_kind === category);
+      sources = data.sources || [];
       renderSourceButtons();
       const preferred = sources.find((source) => source.key === "standard_ebooks") || sources[0];
       if (preferred) await switchSource(preferred.key);
@@ -128,7 +124,7 @@
     setBusy(true);
     renderMessage(browseGrid, t("common.loading", "Loading…"));
     try {
-      const data = await apiFetch(`/api/catalog/browse?source=${encodeURIComponent(requestedSource)}&category=${category}`);
+      const data = await apiFetch(`/api/catalog/browse?source=${encodeURIComponent(requestedSource)}`);
       if (sourceKey !== requestedSource || currentGeneration !== generation) return;
       renderCards(browseGrid, data.items || []);
     } catch (_error) {
@@ -245,7 +241,7 @@
     results.hidden = false;
     renderMessage(results, t("index.searching", "Searching…"));
     try {
-      const data = await apiFetch(`/api/catalog/search?source=${encodeURIComponent(sourceKey)}&q=${encodeURIComponent(keyword)}&category=${category}`);
+      const data = await apiFetch(`/api/catalog/search?source=${encodeURIComponent(sourceKey)}&q=${encodeURIComponent(keyword)}`);
       if (currentGeneration !== generation) return;
       renderCards(results, data.items || []);
     } catch (_error) {
@@ -395,21 +391,6 @@
   if (document.fonts) document.fonts.ready.then(moveThumb);
 
   query.addEventListener("input", () => { generation++; setBusy(false); results.replaceChildren(); });
-  categorySelect.addEventListener("change", () => {
-    category = categorySelect.value;
-    generation++;
-    closeModal();
-    if (!["ebook", "audiobook", "podcast"].includes(category)) {
-      window.location.assign(categorySelect.dataset.videoUrl + "?category=" + encodeURIComponent(category));
-      return;
-    }
-    sources = allSources.filter((source) => source.media_kind === category);
-    renderSourceButtons();
-    const address = new URL(window.location.href);
-    address.searchParams.set("category", category);
-    window.history.replaceState(null, "", address);
-    if (sources[0]) switchSource(sources[0].key);
-  });
 
   init();
 }());

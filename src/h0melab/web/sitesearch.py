@@ -68,6 +68,14 @@ SERIES_SITES = (
 MOVIE_SITES = ("megakino", "cineby", "filmpalast", "filmo", "kinox", "moflix")
 
 
+class SearchResults(list):
+    """Keep list compatibility while exposing provider failures to HTTP clients."""
+
+    def __init__(self, *, error):
+        super().__init__()
+        self.error = error
+
+
 def sites_for(media_type):
     return MOVIE_SITES if media_type == "movie" else SERIES_SITES
 
@@ -92,10 +100,12 @@ def search(site, keyword):
         return []
 
     try:
-        raw = query(keyword) or []
+        raw = query(keyword)
     except Exception as exc:
         logger.warning("Search on %s failed for '%s': %s", site, keyword, exc)
-        return []
+        return SearchResults(error=f"Search on {site} failed")
+    if raw is None:
+        return SearchResults(error=f"Search on {site} returned no valid response")
     if isinstance(raw, dict):
         raw = [raw]
 

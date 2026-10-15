@@ -1,5 +1,19 @@
 # Changes
 
+## 2.1.1
+
+- Remove the category selector from both native pages. Restore the existing video/manga source tabs and all book/audio catalog source tabs without category-driven hiding or navigation.
+- Remove category filtering and metadata-probing from native search, browse, genre and random endpoints. Legacy `category` parameters no longer change results. Search relevance and the two Jellyfin search groups belong exclusively to the connector.
+- Keep additive `/api/sources` capability metadata and available concrete media identity fields; they do not impose native UI or search policy.
+- Expose detectable provider search failures as HTTP errors rather than successful empty results. Existing internal list consumers remain compatible.
+- Preserve queue request-key idempotency, exact catalog-asset download flags, existing data and version resolution.
+
+### Release and upgrade
+
+Publish **v2.1.1** from branch **models** as a GitHub release to trigger the existing Docker publication workflow. Deploy it before **Jellyfin connector 1.3.1**. No workflow changes or new automation scripts are required. Native navigation and all existing catalog sources remain available independently of the Jellyfin-only admin switches.
+
+Back up persistent configuration/data before deployment and avoid resubmitting running queue entries. This correction needs no new database migration or data reset. To revert the program, use the previous release with its matching backup; already downloaded files are not undone by a program rollback.
+
 ## 2.1.0
 
 - Add category selection to the video/manga homepage and the book/audio catalog. Only sources of the chosen category are offered; category navigation preserves the deployment's URL prefix.

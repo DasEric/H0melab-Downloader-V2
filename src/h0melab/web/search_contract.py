@@ -1,22 +1,8 @@
-"""Source capabilities and deterministic, title-based search relevance.
+"""Read-only source metadata for API clients; no native UI/search filtering.
 
-Interactive search is deliberately stricter than a provider's full-text search.
-Every meaningful query word must be explained by a title/alias (or author for
-catalogs). Watchlist identity matching remains separate and stricter still.
+Concrete media types describe sources/results. Search grouping and relevance
+policy belong exclusively to the Jellyfin connector.
 """
-
-import html
-import re
-import unicodedata
-
-CATEGORIES = {
-    "movie": ("Filme", "Movies"),
-    "series": ("Serien / Anime", "Series / Anime"),
-    "manga": ("Manga", "Manga"),
-    "ebook": ("E-Books", "eBooks"),
-    "audiobook": ("Hörbücher", "Audio books"),
-    "podcast": ("Podcasts", "Podcasts"),
-}
 
 SITE_TYPES = {
     "aniworld": ("movie", "series"),
@@ -45,93 +31,6 @@ BROWSE_PATHS = {
     "cineby": ("api/cineby-movies",),
     "moflix": ("api/moflix-movies",),
 }
-
-_STOP_WORDS = {
-    "the",
-    "a",
-    "an",
-    "der",
-    "die",
-    "das",
-    "ein",
-    "eine",
-    "film",
-    "movie",
-    "serie",
-    "series",
-}
-
-
-def normalized(value):
-    value = html.unescape(re.sub(r"<[^>]*>", " ", str(value or "")))
-    value = unicodedata.normalize("NFKD", value).casefold()
-    value = "".join(c for c in value if not unicodedata.combining(c))
-    return " ".join(re.findall(r"[^\W_]+", value, flags=re.UNICODE))
-
-
-def relevance(item, query):
-    query_text = normalized(query)
-    words = query_text.split()
-    if not words:
-        return 0
-    year = (
-        next((w for w in words if re.fullmatch(r"(?:19|20)\d{2}", w)), None)
-        if len(words) > 1
-        else None
-    )
-    if year:
-        known = str(item.get("year") or item.get("release_year") or "")[:4]
-        embedded = re.search(r"\b(?:19|20)\d{2}\b", str(item.get("title") or ""))
-        known = known or (embedded.group() if embedded else "")
-        if known and known != year:
-            return 0
-        words.remove(year)
-    significant = [w for w in words if w not in _STOP_WORDS] or words
-    if not significant:
-        return 0
-    phrase = " ".join(words)
-    aliases = item.get("alternative_titles") or []
-    if isinstance(aliases, str):
-        aliases = [aliases]
-    titles = [item.get("title"), item.get("name"), item.get("original_title"), *aliases]
-    author = (
-        normalized(item.get("author"))
-        if item.get("media_kind") in ("ebook", "audiobook", "podcast")
-        else ""
-    )
-    best = 0
-    for title in titles:
-        text = normalized(title)
-        if not text:
-            continue
-        tokens = (text + " " + author).split()
-        if not all(
-            any(w == t or (len(w) >= 3 and t.startswith(w)) for t in tokens)
-            for w in significant
-        ):
-            continue
-        score = (
-            1000
-            if text == query_text or text == phrase
-            else 900
-            if text.startswith(phrase)
-            else 800
-        )
-        best = max(best, score - min(100, max(0, len(tokens) - len(significant))))
-    return best
-
-
-def relevant_results(items, query):
-    found = [{**item, "relevance": relevance(item, query)} for item in items]
-    return sorted(
-        (item for item in found if item["relevance"] > 0),
-        key=lambda item: (
-            -item["relevance"],
-            normalized(item.get("title")),
-            str(item.get("url") or item.get("id")),
-        ),
-    )
-
 
 def media_type(site, item):
     """Only return a type backed by metadata or an unambiguous source/URL."""

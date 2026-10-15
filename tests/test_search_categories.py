@@ -1,4 +1,4 @@
-"""Offline regressions for the Gravity Falls report and the connector contract."""
+"""Native UI rollback and additive Jellyfin API contract regressions."""
 
 from types import SimpleNamespace
 
@@ -6,7 +6,7 @@ import pytest
 
 from h0melab.catalog.common import CatalogAsset, CatalogItem
 from h0melab.web import db, sitesearch
-from h0melab.web.search_contract import media_type, relevance, relevant_results
+from h0melab.web.search_contract import media_type
 from h0melab.web.views import api_catalog, api_media
 
 
@@ -46,41 +46,7 @@ def test_wheel_version_and_missing_package_fallback(monkeypatch, tmp_path):
     assert version.get_version() == version.FALLBACK_VERSION
 
 
-@pytest.mark.parametrize(
-    "title",
-    ["Cat Gravity", "Anti-Gravity Boy", "Gravity Eyes", "True True", "Only For Her"],
-)
-def test_gravity_falls_rejects_unrelated_titles(title):
-    assert relevance({"title": title}, "gravity falls") == 0
-
-
-def test_gravity_falls_keeps_the_german_title():
-    assert relevance({"title": "Willkommen in Gravity Falls"}, "gravity falls") > 0
-
-
-def test_exact_title_precedes_a_longer_title():
-    found = relevant_results(
-        [{"title": "Willkommen in Gravity Falls"}, {"title": "Gravity Falls"}],
-        "gravity falls",
-    )
-    assert found[0]["title"] == "Gravity Falls"
-
-
-def test_aliases_author_year_and_numeric_titles():
-    assert relevance(
-        {"title": "Anderer Titel", "original_title": "Gravity Falls"}, "gravity falls"
-    )
-    assert relevance({"title": "Dune", "year": "1984"}, "Dune 2021") == 0
-    assert relevance({"title": "Dune", "year": "2021"}, "Dune 2021")
-    assert relevance({"title": "1984"}, "1984")
-    assert relevance(
-        {"title": "Dune", "author": "Frank Herbert", "media_kind": "ebook"}, "Herbert"
-    )
-    assert relevance({"title": "Dune", "author": "Frank Herbert"}, "Herbert") == 0
-    assert relevance({"title": "F1 - Der Film"}, "F1 Movie")
-
-
-def test_sources_advertise_categories_and_every_browse_adapter(client):
+def test_sources_advertise_concrete_types_and_every_browse_adapter(client):
     response = client.get("/api/sources")
     assert response.status_code == 200
     body = response.get_json()
@@ -95,36 +61,7 @@ def test_sources_advertise_categories_and_every_browse_adapter(client):
     assert sources["htv"]["enabled"] is False
 
 
-def test_series_search_never_calls_mangafire(client, monkeypatch):
-    def unexpected(*args):
-        pytest.fail("MangaFire was called for a series search")
-
-    monkeypatch.setattr(sitesearch, "search", unexpected)
-    assert (
-        client.post(
-            "/api/search",
-            json={
-                "keyword": "gravity falls",
-                "site": "mangafire",
-                "category": "series",
-            },
-        ).status_code
-        == 400
-    )
-
-
-def test_disabled_source_is_not_searched(client, monkeypatch):
-    monkeypatch.setenv("H0MELAB_ENABLE_STO", "0")
-    assert (
-        client.post(
-            "/api/search",
-            json={"keyword": "gravity falls", "site": "sto", "category": "series"},
-        ).status_code
-        == 400
-    )
-
-
-def test_search_filters_and_preserves_the_true_category(client, monkeypatch):
+def test_native_search_is_not_a_connector_relevance_filter(client, monkeypatch):
     monkeypatch.setattr(
         sitesearch,
         "search",
@@ -148,10 +85,11 @@ def test_search_filters_and_preserves_the_true_category(client, monkeypatch):
         json={"keyword": "gravity falls", "site": "sto", "category": "series"},
     ).get_json()
     assert [item["title"] for item in body["results"]] == [
-        "Willkommen in Gravity Falls"
+        "Cat Gravity",
+        "Willkommen in Gravity Falls",
     ]
     assert body["results"][0]["source"] == "sto"
-    assert body["results"][0]["relevance"] > 0
+    assert "relevance" not in body["results"][0]
 
 
 def test_missing_title_never_becomes_the_search_query(monkeypatch):
@@ -161,7 +99,7 @@ def test_missing_title_never_becomes_the_search_query(monkeypatch):
     assert sitesearch.search("mangafire", "gravity falls") == []
 
 
-def test_mixed_source_keeps_film_and_series_apart(client, monkeypatch):
+def test_native_search_keeps_films_and_series_together(client, monkeypatch):
     monkeypatch.setattr(
         sitesearch,
         "search",
@@ -183,29 +121,27 @@ def test_mixed_source_keeps_film_and_series_apart(client, monkeypatch):
     body = client.post(
         "/api/search", json={"keyword": "dune", "site": "moflix", "category": "movie"}
     ).get_json()
-    assert len(body["results"]) == 1
+    assert len(body["results"]) == 2
     assert body["results"][0]["media_type"] == "movie"
 
 
-def test_unknown_mixed_type_is_resolved_not_guessed(monkeypatch):
-    monkeypatch.setattr(
-        api_media,
-        "resolve_provider",
-        lambda url: SimpleNamespace(
-            name="Mixed",
-            series_cls=lambda **kwargs: SimpleNamespace(
-                seasons=[SimpleNamespace(are_movies=False)]
-            ),
-        ),
-    )
-    assert (
-        api_media._resolved_media_type("kinox", {"url": "https://example.test/series"})
-        == "series"
-    )
+def test_provider_failure_is_an_error_not_no_results(client, monkeypatch):
+    def failed(query):
+        raise RuntimeError("Provider unavailable")
+
+    monkeypatch.setitem(sitesearch.SITE_SEARCH, "moflix", failed)
+    response = client.post("/api/search", json={"keyword": "Dune", "site": "moflix"})
+    assert response.status_code == 502
+    assert "error" in response.get_json()
+    assert "results" not in response.get_json()
+
+
+def test_missing_mixed_type_is_not_guessed():
+    assert media_type("kinox", {"url": "https://example.test/unknown"}) == ""
     assert media_type("mangafire", {}) == "manga"
 
 
-def test_browse_carries_real_source_and_filters_type(client, monkeypatch):
+def test_browse_carries_real_source_without_filtering_type(client, monkeypatch):
     monkeypatch.setattr(api_media, "_browse_cache", {})
     view = api_media._make_browse_view(
         "moflix_movies",
@@ -224,21 +160,24 @@ def test_browse_carries_real_source_and_filters_type(client, monkeypatch):
     )
     with client.application.test_request_context("/api/moflix-movies?category=series"):
         body = view().get_json()
-    assert [item["title"] for item in body["results"]] == ["Serie"]
+    assert [item["title"] for item in body["results"]] == ["Film", "Serie"]
     assert body["results"][0]["source"] == "moflix"
 
 
-def test_catalog_category_mismatch_is_rejected(client):
-    assert (
-        client.get(
-            "/api/catalog/search?source=gutenberg&q=dune&category=movie"
-        ).status_code
-        == 400
+def test_catalog_uses_its_source_not_a_category_filter(client, monkeypatch):
+    item = CatalogItem("42", "gutenberg", "ebook", "Anderer Titel")
+    monkeypatch.setattr(
+        api_catalog,
+        "get_source",
+        lambda key: SimpleNamespace(
+            search=lambda query, page: [item], browse=lambda page: [item]
+        ),
     )
-    assert (
-        client.get("/api/catalog/browse?source=gutenberg&category=podcast").status_code
-        == 400
-    )
+    search = client.get("/api/catalog/search?source=gutenberg&q=dune&category=movie")
+    browse = client.get("/api/catalog/browse?source=gutenberg&category=podcast")
+    assert search.status_code == browse.status_code == 200
+    assert search.get_json()["items"][0]["title"] == "Anderer Titel"
+    assert browse.get_json()["items"][0]["media_kind"] == "ebook"
 
 
 def test_selected_asset_downloaded_flag_uses_its_exact_path(
@@ -329,15 +268,33 @@ def test_request_key_serializes_concurrent_submissions():
     assert len(db.get_queue()) == 1
 
 
-@pytest.mark.parametrize(
-    "url,category",
-    [
-        ("/", "series"),
-        ("/?category=movie", "movie"),
-        ("/books-audio?category=podcast", "podcast"),
-    ],
-)
-def test_pages_have_a_selected_category(client, url, category):
+@pytest.mark.parametrize("url", ["/", "/books-audio", "/?category=movie"])
+def test_native_pages_have_no_added_category_controls(client, url):
     page = client.get(url).get_data(as_text=True)
-    assert 'id="mediaCategory"' in page
-    assert f'value="{category}" selected' in page
+    assert 'id="mediaCategory"' not in page
+
+
+def test_native_search_keeps_provider_results_without_metadata_probes(
+    client, monkeypatch
+):
+    monkeypatch.setattr(
+        sitesearch,
+        "search",
+        lambda *args: [
+            {
+                "title": "Gravity Falls",
+                "url": "https://example.test/unknown",
+                "poster": "",
+            },
+            {"title": "Cat Gravity", "url": "https://example.test/cat", "poster": ""},
+        ],
+    )
+    monkeypatch.setattr(
+        api_media,
+        "resolve_provider",
+        lambda *args: pytest.fail("Search must not inspect seasons"),
+    )
+    body = client.post(
+        "/api/search", json={"keyword": "gravity falls", "site": "moflix"}
+    ).get_json()
+    assert len(body["results"]) == 2
