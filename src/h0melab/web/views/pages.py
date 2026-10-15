@@ -8,12 +8,14 @@ from flask import (
     abort,
     current_app,
     render_template,
+    request,
     send_from_directory,
 )
 
 from ...config import LANG_LABELS
 from .. import paths, settings_store, theming
 from ..media import WORKING_PROVIDERS
+from ..search_contract import CATEGORIES
 
 bp = Blueprint("pages", __name__)
 
@@ -67,12 +69,15 @@ def index():
         supported_providers=WORKING_PROVIDERS,
         default_language=settings_store.default_language(),
         sites=settings_store.enabled_sites(),
+        media_categories=CATEGORIES,
+        selected_category=request.args.get("category") if request.args.get("category") in ("movie", "series", "manga") else "series",
     )
 
 
 @bp.route("/books-audio")
 def books_audio():
-    return render_template("catalog.html")
+    return render_template("catalog.html", media_categories=CATEGORIES,
+                           selected_category=request.args.get("category") if request.args.get("category") in ("ebook", "audiobook", "podcast") else "ebook")
 
 
 @bp.route("/queue")

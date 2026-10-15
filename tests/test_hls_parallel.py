@@ -47,9 +47,7 @@ def test_paused_playlist_resumes_after_the_last_flushed_segment(monkeypatch, tmp
         hls._Segment(f"https://cdn.example/{name}.ts", None, index, 5.0)
         for index, name in enumerate(("one", "two", "three"), 1)
     ]
-    playlist = hls._MediaPlaylist(
-        "https://cdn.example/index.m3u8", segments, None
-    )
+    playlist = hls._MediaPlaylist("https://cdn.example/index.m3u8", segments, None)
     tracker = hls._ProgressTracker([playlist], "test")
     calls = []
 

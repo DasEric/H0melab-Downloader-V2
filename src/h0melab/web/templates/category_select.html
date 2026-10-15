@@ -1,0 +1,8 @@
+<div class="search-bar">
+  <label for="mediaCategory">{{ 'Kategorie' if ui_language == 'de' else 'Category' }}</label>
+  <select id="mediaCategory" class="form-select" data-video-url="{{ url_for('pages.index') }}" data-catalog-url="{{ url_for('pages.books_audio') }}">
+    {% for key, labels in media_categories.items() %}
+    <option value="{{ key }}" {% if selected_category == key %}selected{% endif %}>{{ labels[0] if ui_language == 'de' else labels[1] }}</option>
+    {% endfor %}
+  </select>
+</div>

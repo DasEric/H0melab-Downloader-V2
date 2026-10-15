@@ -22,6 +22,7 @@ from ..search import (
     query_moflix,
     query_s_to,
 )
+from .search_contract import media_type
 
 logger = get_logger(__name__)
 
@@ -102,14 +103,20 @@ def search(site, keyword):
     for item in raw:
         if not isinstance(item, dict):
             continue
+        title = item.get("title") or item.get("name")
+        if not isinstance(title, str) or not title.strip():
+            continue
         url = _resolve_url(site, item)
         if not url:
             continue
         results.append(
             {
-                "title": _clean_title(item.get("title") or item.get("name"), keyword),
+                **{key: item[key] for key in ("year", "release_year", "original_title", "alternative_titles", "tmdb_id") if key in item},
+                "title": _clean_title(title),
                 "url": url,
                 "poster": _poster(item),
+                "source": site,
+                "media_type": media_type(site, {**item, "url": url}),
             }
         )
     return results

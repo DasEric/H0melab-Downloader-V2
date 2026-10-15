@@ -1,33 +1,5 @@
-"""Resolve the version string shown in the navbar."""
+"""Compatibility import for the shared application version resolver."""
 
-import re
-from importlib.metadata import PackageNotFoundError
-from importlib.metadata import version as package_version
-from pathlib import Path
+from ..version import get_version
 
-
-def get_version():
-    """Installed package version, falling back to pyproject when run from source."""
-    try:
-        installed = package_version("h0melab-downloader")
-        if installed:
-            return installed
-    except PackageNotFoundError:
-        pass
-    except Exception:
-        pass
-
-    for parent in Path(__file__).resolve().parents:
-        pyproject = parent / "pyproject.toml"
-        if not pyproject.exists():
-            continue
-        try:
-            match = re.search(
-                r'^\s*version\s*=\s*"([^"]+)"',
-                pyproject.read_text(encoding="utf-8"),
-                re.MULTILINE,
-            )
-        except OSError:
-            break
-        return match.group(1) if match else ""
-    return ""
+__all__ = ["get_version"]

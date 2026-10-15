@@ -2,6 +2,8 @@
 
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 
 from flask import Response, jsonify, request
 from niquests.exceptions import HTTPError, RequestException
@@ -28,6 +30,13 @@ from ...search import (
     random_anime,
 )
 from .. import media, sitesearch
+from ..search_contract import (
+    BROWSE_PATHS,
+    SITE_TYPES,
+    media_type,
+    relevant_results,
+    source_capabilities,
+)
 from ..settings_store import english_sub_disabled
 
 logger = get_logger(__name__)
@@ -61,6 +70,7 @@ def _build_kwargs(provider):
 
 
 def register(bp):
+    bp.add_url_rule("/sources", view_func=sources)
     bp.add_url_rule("/search", view_func=search, methods=["POST"])
     bp.add_url_rule("/series", view_func=series)
     bp.add_url_rule("/seasons", view_func=seasons)
@@ -82,24 +92,69 @@ def register(bp):
 # ---------------------------------------------------------------------------
 # Search
 # ---------------------------------------------------------------------------
+def sources():
+    return jsonify(source_capabilities())
+
+
+def _resolved_media_type(site, item):
+    kind = media_type(site, item)
+    if kind:
+        return kind
+    return _inspect_media_type(site, item["url"], int(time.monotonic() // BROWSE_TTL))
+
+
+@lru_cache(maxsize=2048)
+def _inspect_media_type(site, url, cache_period):
+    provider = resolve_provider(url)
+    found = provider.series_cls(url=url, **_build_kwargs(provider))
+    seasons = list(found.seasons)
+    if not seasons:
+        return ""
+    return "movie" if all(getattr(season, "are_movies", False) for season in seasons) else "series"
+
+
+def _category_results(site, items, category):
+    def classify(item):
+        try:
+            kind = _resolved_media_type(site, item)
+        except Exception as exc:
+            logger.warning("Could not classify %s: %s", item.get("url"), exc)
+            return None
+        return {**item, "media_type": kind, "source": site} if kind == category else None
+
+    # Only uncertain mixed sources need metadata requests. Bound their fan-out.
+    if any(not media_type(site, item) for item in items):
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            return [item for item in pool.map(classify, items) if item is not None]
+    return [found for item in items if (found := classify(item)) is not None]
+
+
 def search():
     data = request.get_json(silent=True) or {}
     keyword = (data.get("keyword") or "").strip()
     site = (data.get("site") or "aniworld").strip()
+    category = (data.get("category") or "").strip()
     if not keyword:
         return jsonify({"error": "keyword is required"}), 400
+    if category:
+        from ..settings_store import enabled_sites
+
+        if category not in SITE_TYPES.get(site, ()) or not enabled_sites().get(site):
+            return jsonify({"error": "Source is disabled or does not support this category"}), 400
 
     if site == "htv":
         results = _search_hanime(keyword)
     else:
         results = [
             {
-                "title": item["title"],
-                "url": item["url"],
+                **item,
                 "poster_url": media.proxy_image(item["poster"]),
             }
             for item in sitesearch.search(site, keyword)
         ]
+    results = relevant_results(results, keyword)
+    if category:
+        results = _category_results(site, results[:100], category)
     return jsonify({"results": results})
 
 
@@ -479,6 +534,13 @@ def random_title():
         return jsonify({"error": "Random is not available for serienstream.to"}), 400
     url = random_anime()
     if url:
+        category = request.args.get("category", "").strip()
+        if category:
+            try:
+                if category not in SITE_TYPES["aniworld"] or _resolved_media_type("aniworld", {"url": url}) != category:
+                    return jsonify({"error": "No random title in the selected category. Please try again."}), 404
+            except Exception:
+                return jsonify({"error": "Could not determine the random title's category"}), 502
         return jsonify({"url": url})
     return jsonify({"error": "Failed to fetch random anime"}), 500
 
@@ -544,11 +606,16 @@ def genre():
     if data is None:
         return jsonify({"error": f"Failed to fetch genre {slug}"}), 500
 
+    category = request.args.get("category", "").strip()
+    if category and category not in SITE_TYPES["aniworld"]:
+        return jsonify({"error": "Invalid category"}), 400
+    items = _category_results("aniworld", data["results"], category) if category else data["results"]
+
     return jsonify(
         {
             "results": [
                 {**item, "poster_url": media.proxy_image(item.get("poster_url", ""))}
-                for item in data["results"]
+                for item in items
             ],
             "has_more": data["has_more"],
             "page": page,
@@ -662,6 +729,18 @@ def _make_browse_view(key, fetch):
         results = _cached(key, fetch)
         if results is None:
             return jsonify({"error": f"Failed to fetch {key.replace('_', ' ')}"}), 500
+        site = next((site for site, paths in BROWSE_PATHS.items() if "api/" + key.replace("_", "-") in paths), "")
+        category = (request.args.get("category") or "").strip()
+        if category and category not in SITE_TYPES.get(site, ()):
+            return jsonify({"error": "Source does not support this category"}), 400
+        if category:
+            from ..settings_store import site_enabled
+
+            if not site_enabled(site):
+                return jsonify({"error": "Source is disabled"}), 400
+        typed = _category_results(site, results, category) if category else [
+            {**item, "source": site, "media_type": media_type(site, item)} for item in results
+        ]
         return jsonify(
             {
                 "results": [
@@ -669,7 +748,7 @@ def _make_browse_view(key, fetch):
                         **item,
                         "poster_url": media.proxy_image(item.get("poster_url", "")),
                     }
-                    for item in results
+                    for item in typed
                 ]
             }
         )

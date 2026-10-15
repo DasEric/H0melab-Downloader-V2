@@ -3,7 +3,6 @@ import os
 import random
 import re
 from enum import Enum
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 
 import certifi
@@ -11,13 +10,9 @@ from niquests import Session
 
 from .env import initialize_app_env
 from .logger import get_logger
+from .version import get_version
 
-VERSION = None
-
-try:
-    VERSION = version("h0melab-downloader")
-except PackageNotFoundError:
-    VERSION = "2.0.0"
+VERSION = get_version()
 
 CA_CERT_BUNDLE = certifi.where()
 os.environ.setdefault("SSL_CERT_FILE", CA_CERT_BUNDLE)

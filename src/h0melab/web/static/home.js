@@ -35,6 +35,10 @@
 
   const thumb = el("segmentedThumb");
   const siteButtons = Array.from(document.querySelectorAll(".segmented-btn"));
+  const categorySelect = el("mediaCategory");
+  let currentCategory = categorySelect.value;
+  let sourceCapabilities = [];
+  let searchGeneration = 0;
 
   // Browse rows are cached per process on the server, refresh occasionally here
   const BROWSE_REFRESH_MS = 300000;
@@ -63,7 +67,10 @@
 
   // Any site can be switched off in the settings, so the page opens on the
   // first tab that is actually there rather than on a fixed one
-  const firstSite = () => (siteButtons[0] ? siteButtons[0].dataset.site : "aniworld");
+  const firstSite = () => {
+    const button = siteButtons.find((item) => !item.hidden);
+    return button ? button.dataset.site : "";
+  };
 
   let currentSite = firstSite();
   let downloadedFolders = [];
@@ -95,6 +102,9 @@
   }
 
   function switchSite(site) {
+    searchGeneration++;
+    searchBtn.disabled = !site;
+    searchSpinner.classList.remove("active");
     currentSite = site;
     document.body.dataset.site = site;
     siteButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.site === site));
@@ -107,6 +117,27 @@
     updateGenreBar();
     showBrowseRows();
   }
+
+  function switchCategory() {
+    currentCategory = categorySelect.value;
+    if (!["movie", "series", "manga"].includes(currentCategory)) {
+      window.location.assign(categorySelect.dataset.catalogUrl + "?category=" + encodeURIComponent(currentCategory));
+      return;
+    }
+    openToken++;
+    closeModal("seriesOverlay");
+    siteButtons.forEach((button) => {
+      button.hidden = !sourceCapabilities.some((source) => source.enabled && source.id === button.dataset.site && source.media_types.includes(currentCategory));
+    });
+    browse.querySelectorAll(".browse-grid").forEach((grid) => grid.replaceChildren());
+    Object.keys(browseState).forEach((key) => delete browseState[key]);
+    switchSite(firstSite());
+    const address = new URL(window.location.href);
+    address.searchParams.set("category", currentCategory);
+    window.history.replaceState(null, "", address);
+  }
+  categorySelect.addEventListener("change", switchCategory);
+  searchInput.addEventListener("input", () => { searchGeneration++; searchBtn.disabled = !currentSite; searchSpinner.classList.remove("active"); resultsGrid.replaceChildren(); });
 
   siteButtons.forEach((btn) => {
     btn.addEventListener("click", () => switchSite(btn.dataset.site));
@@ -134,6 +165,7 @@
   }
 
   async function loadRow(section, force) {
+    const category = currentCategory;
     const key = section.dataset.row;
     const state = browseState[key] || (browseState[key] = { loadedAt: 0, pending: null });
     if (state.pending) return state.pending;
@@ -144,12 +176,14 @@
       grid.innerHTML = `<div class="empty-state">${t("common.loading", "Loading...")}</div>`;
     }
 
-    state.pending = apiFetch(`/api/${key.replace(/_/g, "-")}`)
+    state.pending = apiFetch(`/api/${key.replace(/_/g, "-")}?category=${encodeURIComponent(category)}`)
       .then((data) => {
+        if (category !== currentCategory) return;
         state.loadedAt = Date.now();
         renderCards(grid, data.results || []);
       })
       .catch(() => {
+        if (category !== currentCategory) return;
         grid.innerHTML = `<div class="empty-state">${t("common.failed", "Failed")}</div>`;
       })
       .finally(() => {
@@ -302,7 +336,7 @@
 
     try {
       const data = await apiFetch(
-        `/api/genre?slug=${encodeURIComponent(slug)}&page=${page}`
+        `/api/genre?slug=${encodeURIComponent(slug)}&page=${page}&category=${encodeURIComponent(currentCategory)}`
       );
       // a slow page 1 can land after the user already picked another genre
       if (slug !== activeGenre) return;
@@ -322,6 +356,7 @@
 
   /* ===== Search ===== */
   async function doSearch() {
+    const generation = ++searchGeneration;
     const keyword = searchInput.value.trim();
     if (!keyword) {
       clearGenre();
@@ -335,14 +370,15 @@
     browse.hidden = true;
 
     try {
-      const data = await apiSend("/api/search", "POST", { keyword, site: currentSite });
+      const data = await apiSend("/api/search", "POST", { keyword, site: currentSite, category: currentCategory });
+      if (generation !== searchGeneration) return;
       renderCards(resultsGrid, data.results || []);
       loadMissingPosters();
     } catch (error) {
+      if (generation !== searchGeneration) return;
       showToast(`${t("index.search_failed", "Search failed")}: ${error.message}`);
     } finally {
-      searchBtn.disabled = false;
-      searchSpinner.classList.remove("active");
+      if (generation === searchGeneration) { searchBtn.disabled = false; searchSpinner.classList.remove("active"); }
     }
   }
 
@@ -370,7 +406,7 @@
   randomBtn.addEventListener("click", async () => {
     randomBtn.disabled = true;
     try {
-      const data = await apiFetch(`/api/random?site=${currentSite}`);
+      const data = await apiFetch(`/api/random?site=${currentSite}&category=${currentCategory}`);
       openSeries(data.url);
     } catch (error) {
       showToast(error.message);
@@ -941,7 +977,9 @@
     if (!document.hidden) visibleSections().forEach((section) => loadRow(section));
   });
 
-  loadDownloadedFolders().then(() => {
-    switchSite(firstSite());
-  });
+  searchBtn.disabled = true;
+  Promise.all([loadDownloadedFolders(), apiFetch("/api/sources")]).then(([, metadata]) => {
+    sourceCapabilities = metadata.sources || [];
+    switchCategory();
+  }).catch((error) => showToast(error.message));
 })();

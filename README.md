@@ -1,6 +1,6 @@
 # H0melab Downloader v2
 
-[![Version](https://img.shields.io/badge/version-2.0.0-2563eb)](https://github.com/DasEric/H0melab-Downloader-V2/releases)
+[![Version](https://img.shields.io/badge/version-2.1.0-2563eb)](https://github.com/DasEric/H0melab-Downloader-V2/releases)
 [![Tests](https://github.com/DasEric/H0melab-Downloader-V2/actions/workflows/tests.yaml/badge.svg)](https://github.com/DasEric/H0melab-Downloader-V2/actions/workflows/tests.yaml)
 [![License](https://img.shields.io/github/license/DasEric/H0melab-Downloader-V2)](LICENSE)
 

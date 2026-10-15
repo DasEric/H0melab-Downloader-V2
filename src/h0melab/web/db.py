@@ -305,6 +305,7 @@ _MIGRATIONS = {
         "current_bytes": "INTEGER NOT NULL DEFAULT 0",
         "total_bytes": "INTEGER NOT NULL DEFAULT 0",
         "payload_version": "INTEGER NOT NULL DEFAULT 1",
+        "request_key": "TEXT",
     },
     "autosync_series": {"subtitle_language": "TEXT NOT NULL DEFAULT 'none'"},
 }
@@ -326,6 +327,7 @@ def init_db():
                 if column not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
         conn.execute("UPDATE download_queue SET position = id WHERE position = 0")
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_request_key ON download_queue(request_key) WHERE request_key IS NOT NULL")
         # v5 stored movie-only watchlist rows in upcoming_movies. Copying with
         # the original id keeps every existing bookmark and queue relation.
         migrated = conn.execute(
@@ -546,13 +548,20 @@ def add_to_queue(
     source_site=None,
     transfer_kind="stream",
     payload_version=1,
+    request_key=None,
 ):
     with session() as conn:
+        # BEGIN IMMEDIATE serializes the lookup and insert across worker processes.
+        if request_key:
+            conn.execute("BEGIN IMMEDIATE")
+            existing = conn.execute("SELECT id FROM download_queue WHERE request_key = ?", (request_key,)).fetchone()
+            if existing:
+                return existing["id"]
         cur = conn.execute(
             "INSERT INTO download_queue "
             "(title, series_url, episodes, total_episodes, language, subtitle_language, provider, username, "
-            " custom_path_id, source, discord_user_id, media_kind, source_site, transfer_kind, payload_version) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            " custom_path_id, source, discord_user_id, media_kind, source_site, transfer_kind, payload_version, request_key) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 title,
                 series_url,
@@ -569,6 +578,7 @@ def add_to_queue(
                 source_site,
                 transfer_kind,
                 payload_version,
+                request_key,
             ),
         )
         queue_id = cur.lastrowid

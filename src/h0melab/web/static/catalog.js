@@ -16,6 +16,11 @@
   const modalContent = el("catalogContent");
   const formatSelect = el("catalogFormat");
   const downloadButton = el("catalogDownloadBtn");
+  const categorySelect = el("mediaCategory");
+  let category = categorySelect.value;
+  let allSources = [];
+  let generation = 0;
+  let detailGeneration = 0;
 
   let sources = [];
   let sourceKey = "";
@@ -86,6 +91,8 @@
   }
 
   async function switchSource(nextSource) {
+    generation++;
+    closeModal();
     sourceKey = nextSource;
     document.body.dataset.site = sourceKey;
     sourceTrack.querySelectorAll(".segmented-btn").forEach((button) => {
@@ -105,7 +112,8 @@
   async function init() {
     try {
       const data = await apiFetch("/api/catalog/sources");
-      sources = data.sources || [];
+      allSources = data.sources || [];
+      sources = allSources.filter((source) => source.media_kind === category);
       renderSourceButtons();
       const preferred = sources.find((source) => source.key === "standard_ebooks") || sources[0];
       if (preferred) await switchSource(preferred.key);
@@ -116,17 +124,18 @@
 
   async function loadBrowse() {
     const requestedSource = sourceKey;
+    const currentGeneration = generation;
     setBusy(true);
     renderMessage(browseGrid, t("common.loading", "Loading…"));
     try {
-      const data = await apiFetch(`/api/catalog/browse?source=${encodeURIComponent(requestedSource)}`);
-      if (sourceKey !== requestedSource) return;
+      const data = await apiFetch(`/api/catalog/browse?source=${encodeURIComponent(requestedSource)}&category=${category}`);
+      if (sourceKey !== requestedSource || currentGeneration !== generation) return;
       renderCards(browseGrid, data.items || []);
     } catch (_error) {
-      if (sourceKey !== requestedSource) return;
+      if (sourceKey !== requestedSource || currentGeneration !== generation) return;
       renderMessage(browseGrid, t("catalog.error_unavailable", "Catalog currently unavailable."));
     } finally {
-      if (sourceKey === requestedSource) setBusy(false);
+      if (sourceKey === requestedSource && currentGeneration === generation) setBusy(false);
     }
   }
 
@@ -220,6 +229,7 @@
 
   el("catalogSearchForm").addEventListener("submit", async (event) => {
     event.preventDefault();
+    const currentGeneration = ++generation;
     const keyword = query.value.trim();
     if (!keyword) {
       results.hidden = true;
@@ -235,35 +245,43 @@
     results.hidden = false;
     renderMessage(results, t("index.searching", "Searching…"));
     try {
-      const data = await apiFetch(`/api/catalog/search?source=${encodeURIComponent(sourceKey)}&q=${encodeURIComponent(keyword)}`);
+      const data = await apiFetch(`/api/catalog/search?source=${encodeURIComponent(sourceKey)}&q=${encodeURIComponent(keyword)}&category=${category}`);
+      if (currentGeneration !== generation) return;
       renderCards(results, data.items || []);
     } catch (_error) {
+      if (currentGeneration !== generation) return;
       renderMessage(results, t("catalog.error_unavailable", "Catalog currently unavailable."));
     } finally {
-      setBusy(false);
+      if (currentGeneration === generation) setBusy(false);
     }
   });
 
   randomButton.addEventListener("click", async () => {
+    const currentGeneration = ++generation;
     setBusy(true);
     try {
       const data = await apiFetch(`/api/catalog/random?source=${encodeURIComponent(sourceKey)}`);
+      if (currentGeneration !== generation) return;
       if (data.item) await openDetails(data.item);
     } catch (_error) {
+      if (currentGeneration !== generation) return;
       showToast(t("catalog.error_unavailable", "Catalog currently unavailable."));
     } finally {
-      setBusy(false);
+      if (currentGeneration === generation) setBusy(false);
     }
   });
 
   async function openDetails(item) {
+    const token = ++detailGeneration;
     modal.hidden = false;
     modal.classList.add("open");
     document.body.dataset.modal = "open";
     modalLoading.hidden = false;
     modalContent.hidden = true;
     try {
-      current = await apiFetch(`/api/catalog/details?source=${encodeURIComponent(item.source)}&id=${encodeURIComponent(item.id)}`);
+      const detail = await apiFetch(`/api/catalog/details?source=${encodeURIComponent(item.source)}&id=${encodeURIComponent(item.id)}`);
+      if (token !== detailGeneration) return;
+      current = detail;
       el("catalogModalTitle").textContent = current.title || "";
       el("catalogMeta").textContent = [current.author, current.year].filter(Boolean).join(" · ");
       el("catalogDescription").textContent = current.description || t("catalog.no_description", "No description available.");
@@ -273,6 +291,7 @@
       modalLoading.hidden = true;
       modalContent.hidden = false;
     } catch (_error) {
+      if (token !== detailGeneration) return;
       closeModal();
       showToast(t("catalog.error_details", "Details could not be loaded."));
     }
@@ -338,22 +357,26 @@
   downloadButton.addEventListener("click", async () => {
     const asset = selectedAsset();
     if (!asset || !current) return;
+    const selection = current;
+    const token = detailGeneration;
     downloadButton.disabled = true;
     try {
       const data = await apiSend("/api/catalog/download", "POST", {
-        source: current.source,
-        id: current.id,
+        source: selection.source,
+        id: selection.id,
         asset_id: asset.id
       });
-      showToast(`${t("catalog.queued", "Queued")}: ${data.target_path || current.title}`);
-      closeModal();
+      showToast(`${t("catalog.queued", "Queued")}: ${data.target_path || selection.title}`);
+      if (token === detailGeneration) closeModal();
     } catch (_error) {
       showToast(t("catalog.error_download", "Download could not be queued."));
-      downloadButton.disabled = false;
+      if (token === detailGeneration) downloadButton.disabled = false;
     }
   });
 
   function closeModal() {
+    detailGeneration++;
+    current = null;
     modal.classList.remove("open");
     modal.hidden = true;
     modalLoading.hidden = false;
@@ -370,6 +393,23 @@
   });
   window.addEventListener("resize", moveThumb);
   if (document.fonts) document.fonts.ready.then(moveThumb);
+
+  query.addEventListener("input", () => { generation++; setBusy(false); results.replaceChildren(); });
+  categorySelect.addEventListener("change", () => {
+    category = categorySelect.value;
+    generation++;
+    closeModal();
+    if (!["ebook", "audiobook", "podcast"].includes(category)) {
+      window.location.assign(categorySelect.dataset.videoUrl + "?category=" + encodeURIComponent(category));
+      return;
+    }
+    sources = allSources.filter((source) => source.media_kind === category);
+    renderSourceButtons();
+    const address = new URL(window.location.href);
+    address.searchParams.set("category", category);
+    window.history.replaceState(null, "", address);
+    if (sources[0]) switchSource(sources[0].key);
+  });
 
   init();
 }());

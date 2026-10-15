@@ -52,6 +52,9 @@ def _current_username():
 
 def start_download():
     data = request.get_json(silent=True) or {}
+    request_key = str(data.get("request_key") or "").strip()
+    if len(request_key) > 128:
+        return jsonify({"error": "request_key is too long"}), 400
     episodes = data.get("episodes") or []
     if not episodes:
         return jsonify({"error": "episodes list is required"}), 400
@@ -85,6 +88,7 @@ def start_download():
         subtitle_language=subtitle_language,
         username=_current_username(),
         custom_path_id=data.get("custom_path_id"),
+        request_key=request_key or None,
     )
     worker.ensure_started()
     return jsonify({"queue_id": queue_id})

@@ -1,6 +1,7 @@
 """Catalog API for eBooks, audio books and podcasts."""
 
 import random
+from pathlib import Path
 
 from flask import Response, current_app, jsonify, request, url_for
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -9,6 +10,7 @@ from ...catalog import get_source, source_summaries
 from ...catalog.common import CatalogError, ensure_public_url, get
 from ...models.common.library_layout import LibraryItem, media_path
 from .. import db, settings_store, worker
+from ..search_contract import relevant_results
 
 _COVER_TYPES = {"image/avif", "image/gif", "image/jpeg", "image/png", "image/webp"}
 
@@ -98,7 +100,11 @@ def _catalog_error(exc):
 def catalog_browse():
     try:
         page = max(1, min(int(request.args.get("page", 1)), 100))
-        found = _source().browse(page=page)
+        source = _source()
+        category = (request.args.get("category") or "").strip()
+        if category and category != source.media_kind:
+            raise CatalogError("Source does not support this category")
+        found = source.browse(page=page)
     except (CatalogError, ValueError) as exc:
         return _catalog_error(exc)
     return jsonify(
@@ -128,11 +134,15 @@ def catalog_search():
         ), 400
     try:
         page = max(1, min(int(request.args.get("page", 1)), 100))
-        found = _source().search(query, page=page)
+        source = _source()
+        category = (request.args.get("category") or "").strip()
+        if category and category != source.media_kind:
+            raise CatalogError("Source does not support this category")
+        found = source.search(query, page=page)
     except (CatalogError, ValueError) as exc:
         return _catalog_error(exc)
     return jsonify(
-        {"items": [_proxy_cover(item.as_dict()) for item in found], "page": page}
+        {"items": relevant_results([_proxy_cover(item.as_dict()) for item in found], query), "page": page}
     )
 
 
@@ -157,6 +167,7 @@ def _with_target(item):
         targets = {asset.id: _target_for(item, asset) for asset in item.assets}
         for asset in data["assets"]:
             asset["target_path"] = targets[asset["id"]]
+            asset["downloaded"] = Path(asset["target_path"]).is_file()
         data["target_path"] = targets[item.assets[0].id]
     return data
 
@@ -177,6 +188,9 @@ def catalog_download():
     source_key = str(data.get("source") or "").strip()
     item_id = str(data.get("id") or "").strip()
     asset_id = str(data.get("asset_id") or "").strip()
+    request_key = str(data.get("request_key") or "").strip()
+    if len(request_key) > 128:
+        return jsonify({"error": "request_key is too long"}), 400
     if not source_key or not item_id or not asset_id:
         return jsonify({"error": "source, id and asset_id are required"}), 400
     try:
@@ -209,6 +223,7 @@ def catalog_download():
         source_site=source.key,
         transfer_kind="http",
         payload_version=1,
+        request_key=request_key or None,
     )
     worker.ensure_started()
     return jsonify({"queue_id": queue_id, "target_path": _target_for(item, asset)})

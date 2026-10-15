@@ -1425,6 +1425,10 @@ def _cineby_result(item):
         "url": url,
         "poster_url": f"{TMDB_IMG}{poster}" if poster else "",
         "genre": "",
+        "media_type": "series" if media == "tv" or (media is None and item.get("name")) else "movie",
+        "year": year,
+        "tmdb_id": tmdb_id,
+        "original_title": item.get("original_title") or item.get("original_name") or "",
     }
 
 
@@ -1789,7 +1793,9 @@ def fetch_moflix_movies():
         poster = item.get("poster") or ""
         if poster and not poster.startswith("http"):
             poster = "https://moflix-stream.xyz/" + poster.lstrip("/")
-        results.append({"title": title, "url": url, "poster_url": poster})
+        result = {"title": title, "url": url, "poster_url": poster}
+        result.update({key: item[key] for key in ("is_series", "year", "original_title") if item.get(key) is not None})
+        results.append(result)
     return results
 
 
@@ -1831,7 +1837,9 @@ def query_moflix(keyword):
         poster = item.get("poster") or ""
         if poster and not poster.startswith("http"):
             poster = "https://moflix-stream.xyz/" + poster.lstrip("/")
-        results.append({"title": title, "url": url, "poster_url": poster})
+        result = {"title": title, "url": url, "poster_url": poster}
+        result.update({key: item[key] for key in ("is_series", "year", "original_title") if item.get(key) is not None})
+        results.append(result)
     return results
 
 
