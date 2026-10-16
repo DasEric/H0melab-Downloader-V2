@@ -9,6 +9,7 @@ import re
 
 from ..logger import get_logger
 from ..models.mangafire_to.series import search_series as query_mangafire
+from ..models.moflix_stream.client import MoflixResponseError
 from ..search import (
     query as query_aniworld,
 )
@@ -101,6 +102,9 @@ def search(site, keyword):
 
     try:
         raw = query(keyword)
+    except MoflixResponseError as exc:
+        logger.warning("Search on %s failed: %s", site, exc)
+        return SearchResults(error=str(exc))
     except Exception as exc:
         logger.warning("Search on %s failed for '%s': %s", site, keyword, exc)
         return SearchResults(error=f"Search on {site} failed")

@@ -541,12 +541,13 @@ def test_moflixclick_resolves_relative_playlist_links(
 
 
 def test_moflix_search_excludes_people_and_invalid_ids(monkeypatch):
-    import curl_cffi.requests
+    from h0melab.models.moflix_stream import client
 
     def get(url, **kwargs):
-        if url.endswith("/api/v1/search/silo"):
+        if url.endswith("/search/silo"):
             return _response(
-                payload={
+                text='window.bootstrapData = ' + json.dumps({"loaders": {"searchPage": {
+                    "query": "silo",
                     "results": [
                         {
                             "id": 42,
@@ -567,11 +568,11 @@ def test_moflix_search_excludes_people_and_invalid_ids(monkeypatch):
                             "poster": None,
                         },
                     ]
-                }
+                }}}) + ';'
             )
         return _response(text='{"csrf_token":"test"}')
 
-    monkeypatch.setattr(curl_cffi.requests, "get", get)
+    monkeypatch.setattr(client, "_session", lambda: SimpleNamespace(get=get))
     assert query_moflix("silo") == [
         {
             "title": "Silo",
@@ -582,17 +583,82 @@ def test_moflix_search_excludes_people_and_invalid_ids(monkeypatch):
 
 
 def test_moflix_search_and_browse_propagate_request_errors(monkeypatch):
-    import curl_cffi.requests
+    from h0melab.models.moflix_stream import client
 
     def fail(*args, **kwargs):
         raise TimeoutError("moflix timed out")
 
-    monkeypatch.setattr(curl_cffi.requests, "get", fail)
+    monkeypatch.setattr(client, "_session", lambda: SimpleNamespace(get=fail))
 
     with pytest.raises(TimeoutError, match="moflix timed out"):
         query_moflix("silo")
     with pytest.raises(TimeoutError, match="moflix timed out"):
         fetch_moflix_movies()
+
+
+@pytest.mark.parametrize("url, expected", [
+    ("https://moflix-stream.xyz/titles/42/silo", "https://moflix-stream.xyz/titles/42"),
+    ("http://www.moflix-stream.xyz/titles/42/silo/?season=2", "https://moflix-stream.xyz/titles/42?season=2"),
+    ("https://moflix-stream.xyz/titles/42/silo/season/2/episodes/3", "https://moflix-stream.xyz/titles/42/season/2/episodes/3"),
+    ("https://moflix-stream.xyz/titles/42/season/2/episodes/3", "https://moflix-stream.xyz/titles/42/season/2/episodes/3"),
+    ("HTTPS://MOFLIX-STREAM.XYZ/TITLES/42/SEASON/2/EPISODES/3", "https://moflix-stream.xyz/titles/42/season/2/episodes/3"),
+])
+def test_browser_and_legacy_urls_resolve_to_same_model(url, expected):
+    from h0melab.providers import normalize_url, resolve_provider
+
+    assert normalize_url(url) == expected
+    assert resolve_provider(url).name == "Moflix"
+    episode = moflix.MoflixEpisode(url)
+    assert episode.url == expected
+    assert episode.title_id == "42"
+
+
+@pytest.mark.parametrize("url", [
+    "https://moflix-stream.xyz.evil.test/titles/42/silo",
+    "https://example.test/titles/42/silo",
+    "https://moflix-stream.xyz/titles/42/silo/unexpected",
+    "https://moflix-stream.xyz/titles/42/season/nope",
+    "https://moflix-stream.xyz/titles/42/episodes/3",
+    "https://moflix-stream.xyz/titles/42/season?season=1",
+])
+def test_moflix_rejects_unrelated_or_malformed_urls(url):
+    with pytest.raises(ValueError, match="Invalid Moflix"):
+        moflix.MoflixEpisode(url)
+
+
+def test_initial_model_bootstrap_handles_multiline_data(monkeypatch):
+    _moflix_api(monkeypatch)
+    original_fetch = moflix._fetch_moflix
+
+    def fetch(url, *args):
+        if "/api/" not in url:
+            return _response(text='window.bootstrapData = {\n"csrf_token": "test",\n"nested": {"value": "};"}\n};')
+        return original_fetch(url, *args)
+
+    monkeypatch.setattr(moflix, "_fetch_moflix", fetch)
+    assert moflix.MoflixEpisode("https://moflix-stream.xyz/titles/42/silo").title == "Sample"
+
+
+def test_episode_pagination_is_complete_deduplicated_and_lazy(monkeypatch):
+    _moflix_api(monkeypatch, series=True)
+    original_get = moflix.MoflixEpisode._api_get
+    calls = []
+
+    def get(self, url):
+        calls.append(url)
+        if "/seasons/1?" in url:
+            if "page=2" in url:
+                return _response(payload={"episodes": {"data": [{"episode_number": 1, "name": "One"}, {"episode_number": 2, "name": "Two"}], "next_page": None}})
+            return _response(payload={"episodes": {"data": [{"episode_number": 1, "name": "One"}], "next_page": 2}})
+        return original_get(self, url)
+
+    monkeypatch.setattr(moflix.MoflixEpisode, "_api_get", get)
+    series = moflix.MoflixEpisode("https://moflix-stream.xyz/titles/42?season=1")
+    episodes = series.seasons[0].episodes
+    assert [ep.episode_number for ep in episodes] == [1, 2]
+    assert episodes[1].title_en == "Two"
+    assert not any("/episodes/" in url for url in calls)
+    assert sum("/seasons/1?" in url for url in calls) == 2
 
 
 def test_vidara_uses_its_stream_api(monkeypatch):

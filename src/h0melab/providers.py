@@ -52,6 +52,7 @@ from .models import (
     SerienstreamSeries,
 )
 from .models.filmo_to.episode import FILMO_EPISODE_PATTERN
+from .models.moflix_stream.client import canonical_title_url
 
 
 @dataclass(frozen=True)
@@ -169,6 +170,9 @@ def normalize_url(url: str) -> str:
         return url
 
     url = url.strip()
+
+    if MOFLIX_SERIES_PATTERN.fullmatch(url):
+        return canonical_title_url(url)
 
     parsed = urlparse(url)
     path = parsed.path

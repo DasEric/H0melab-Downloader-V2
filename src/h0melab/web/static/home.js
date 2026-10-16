@@ -153,13 +153,25 @@
       grid.innerHTML = `<div class="empty-state">${t("common.loading", "Loading...")}</div>`;
     }
 
-    state.pending = apiFetch(`/api/${key.replace(/_/g, "-")}`)
+    state.pending = apiFetch(`/api/${key.replace(/_/g, "-")}`, { timeoutMs: 30000 })
       .then((data) => {
         state.loadedAt = Date.now();
         renderCards(grid, data.results || []);
       })
-      .catch(() => {
-        grid.innerHTML = `<div class="empty-state">${t("common.failed", "Failed")}</div>`;
+      .catch((error) => {
+        const message = document.createElement("div");
+        message.className = "empty-state";
+        message.setAttribute("role", "alert");
+        message.textContent = `${t("common.failed", "Failed")}: ${error.message}`;
+        const retry = document.createElement("button");
+        retry.type = "button";
+        retry.className = "btn btn-secondary";
+        retry.textContent = t("common.retry", "Try again");
+        retry.addEventListener("click", () => {
+          grid.replaceChildren();
+          loadRow(section, true);
+        });
+        grid.replaceChildren(message, retry);
       })
       .finally(() => {
         state.pending = null;
@@ -345,7 +357,12 @@
     browse.hidden = true;
 
     try {
-      const data = await apiSend("/api/search", "POST", { keyword, site: currentSite });
+      const data = await apiFetch("/api/search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ keyword, site: currentSite }),
+        timeoutMs: 30000
+      });
       if (generation !== searchGeneration) return;
       renderCards(resultsGrid, data.results || []);
       loadMissingPosters();

@@ -10,6 +10,7 @@ from ...config import DEFAULT_USER_AGENT, GLOBAL_SESSION
 from ...extractors.provider.hanime_tv import fetch_hanime_trending
 from ...logger import get_logger
 from ...models.mangafire_to.series import _get as get_mangafire
+from ...models.moflix_stream.client import MoflixResponseError
 from ...providers import resolve_provider
 from ...search import (
     fetch_burningseries_series,
@@ -674,7 +675,18 @@ def _cached(key, fetch, *, raise_errors=False):
 
 def _make_browse_view(key, fetch):
     def view():
-        results = _cached(key, fetch)
+        try:
+            results = (
+                _cached(key, fetch, raise_errors=True)
+                if key == "moflix_movies"
+                else _cached(key, fetch)
+            )
+        except MoflixResponseError as exc:
+            logger.warning("Moflix browse fetch failed: %s", exc)
+            return jsonify({"error": str(exc)}), 502
+        except Exception:
+            logger.exception("Browse fetch '%s' failed", key)
+            return jsonify({"error": f"Failed to fetch {key.replace('_', ' ')}"}), 502
         if results is None:
             return jsonify({"error": f"Failed to fetch {key.replace('_', ' ')}"}), 500
         site = next((site for site, paths in BROWSE_PATHS.items() if "api/" + key.replace("_", "-") in paths), "")
