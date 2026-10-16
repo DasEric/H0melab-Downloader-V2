@@ -546,29 +546,37 @@ def test_moflix_search_excludes_people_and_invalid_ids(monkeypatch):
     def get(url, **kwargs):
         if url.endswith("/search/silo"):
             return _response(
-                text='window.bootstrapData = ' + json.dumps({"loaders": {"searchPage": {
-                    "query": "silo",
-                    "results": [
-                        {
-                            "id": 42,
-                            "name": "Silo",
-                            "model_type": "title",
-                            "poster": "https://image.example/silo.jpg",
-                        },
-                        {
-                            "id": 101,
-                            "name": "Silo Septiadi",
-                            "model_type": "person",
-                            "poster": None,
-                        },
-                        {
-                            "id": None,
-                            "name": "Broken",
-                            "model_type": "title",
-                            "poster": None,
-                        },
-                    ]
-                }}}) + ';'
+                text="window.bootstrapData = "
+                + json.dumps(
+                    {
+                        "loaders": {
+                            "searchPage": {
+                                "query": "silo",
+                                "results": [
+                                    {
+                                        "id": 42,
+                                        "name": "Silo",
+                                        "model_type": "title",
+                                        "poster": "https://image.example/silo.jpg",
+                                    },
+                                    {
+                                        "id": 101,
+                                        "name": "Silo Septiadi",
+                                        "model_type": "person",
+                                        "poster": None,
+                                    },
+                                    {
+                                        "id": None,
+                                        "name": "Broken",
+                                        "model_type": "title",
+                                        "poster": None,
+                                    },
+                                ],
+                            }
+                        }
+                    }
+                )
+                + ";"
             )
         return _response(text='{"csrf_token":"test"}')
 
@@ -596,13 +604,31 @@ def test_moflix_search_and_browse_propagate_request_errors(monkeypatch):
         fetch_moflix_movies()
 
 
-@pytest.mark.parametrize("url, expected", [
-    ("https://moflix-stream.xyz/titles/42/silo", "https://moflix-stream.xyz/titles/42"),
-    ("http://www.moflix-stream.xyz/titles/42/silo/?season=2", "https://moflix-stream.xyz/titles/42?season=2"),
-    ("https://moflix-stream.xyz/titles/42/silo/season/2/episodes/3", "https://moflix-stream.xyz/titles/42/season/2/episodes/3"),
-    ("https://moflix-stream.xyz/titles/42/season/2/episodes/3", "https://moflix-stream.xyz/titles/42/season/2/episodes/3"),
-    ("HTTPS://MOFLIX-STREAM.XYZ/TITLES/42/SEASON/2/EPISODES/3", "https://moflix-stream.xyz/titles/42/season/2/episodes/3"),
-])
+@pytest.mark.parametrize(
+    "url, expected",
+    [
+        (
+            "https://moflix-stream.xyz/titles/42/silo",
+            "https://moflix-stream.xyz/titles/42",
+        ),
+        (
+            "http://www.moflix-stream.xyz/titles/42/silo/?season=2",
+            "https://moflix-stream.xyz/titles/42?season=2",
+        ),
+        (
+            "https://moflix-stream.xyz/titles/42/silo/season/2/episodes/3",
+            "https://moflix-stream.xyz/titles/42/season/2/episodes/3",
+        ),
+        (
+            "https://moflix-stream.xyz/titles/42/season/2/episodes/3",
+            "https://moflix-stream.xyz/titles/42/season/2/episodes/3",
+        ),
+        (
+            "HTTPS://MOFLIX-STREAM.XYZ/TITLES/42/SEASON/2/EPISODES/3",
+            "https://moflix-stream.xyz/titles/42/season/2/episodes/3",
+        ),
+    ],
+)
 def test_browser_and_legacy_urls_resolve_to_same_model(url, expected):
     from h0melab.providers import normalize_url, resolve_provider
 
@@ -613,14 +639,17 @@ def test_browser_and_legacy_urls_resolve_to_same_model(url, expected):
     assert episode.title_id == "42"
 
 
-@pytest.mark.parametrize("url", [
-    "https://moflix-stream.xyz.evil.test/titles/42/silo",
-    "https://example.test/titles/42/silo",
-    "https://moflix-stream.xyz/titles/42/silo/unexpected",
-    "https://moflix-stream.xyz/titles/42/season/nope",
-    "https://moflix-stream.xyz/titles/42/episodes/3",
-    "https://moflix-stream.xyz/titles/42/season?season=1",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://moflix-stream.xyz.evil.test/titles/42/silo",
+        "https://example.test/titles/42/silo",
+        "https://moflix-stream.xyz/titles/42/silo/unexpected",
+        "https://moflix-stream.xyz/titles/42/season/nope",
+        "https://moflix-stream.xyz/titles/42/episodes/3",
+        "https://moflix-stream.xyz/titles/42/season?season=1",
+    ],
+)
 def test_moflix_rejects_unrelated_or_malformed_urls(url):
     with pytest.raises(ValueError, match="Invalid Moflix"):
         moflix.MoflixEpisode(url)
@@ -632,11 +661,16 @@ def test_initial_model_bootstrap_handles_multiline_data(monkeypatch):
 
     def fetch(url, *args):
         if "/api/" not in url:
-            return _response(text='window.bootstrapData = {\n"csrf_token": "test",\n"nested": {"value": "};"}\n};')
+            return _response(
+                text='window.bootstrapData = {\n"csrf_token": "test",\n"nested": {"value": "};"}\n};'
+            )
         return original_fetch(url, *args)
 
     monkeypatch.setattr(moflix, "_fetch_moflix", fetch)
-    assert moflix.MoflixEpisode("https://moflix-stream.xyz/titles/42/silo").title == "Sample"
+    assert (
+        moflix.MoflixEpisode("https://moflix-stream.xyz/titles/42/silo").title
+        == "Sample"
+    )
 
 
 def test_episode_pagination_is_complete_deduplicated_and_lazy(monkeypatch):
@@ -648,8 +682,25 @@ def test_episode_pagination_is_complete_deduplicated_and_lazy(monkeypatch):
         calls.append(url)
         if "/seasons/1?" in url:
             if "page=2" in url:
-                return _response(payload={"episodes": {"data": [{"episode_number": 1, "name": "One"}, {"episode_number": 2, "name": "Two"}], "next_page": None}})
-            return _response(payload={"episodes": {"data": [{"episode_number": 1, "name": "One"}], "next_page": 2}})
+                return _response(
+                    payload={
+                        "episodes": {
+                            "data": [
+                                {"episode_number": 1, "name": "One"},
+                                {"episode_number": 2, "name": "Two"},
+                            ],
+                            "next_page": None,
+                        }
+                    }
+                )
+            return _response(
+                payload={
+                    "episodes": {
+                        "data": [{"episode_number": 1, "name": "One"}],
+                        "next_page": 2,
+                    }
+                }
+            )
         return original_get(self, url)
 
     monkeypatch.setattr(moflix.MoflixEpisode, "_api_get", get)
