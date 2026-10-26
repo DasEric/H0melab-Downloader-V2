@@ -52,7 +52,16 @@ def media_type(site, item):
         return "movie" if item["is_movie"] else "series"
     url = str(item.get("url") or "").lower()
     if site == "megakino":
-        return "series" if "/serials/" in url else "movie"
+        from ..models.megakino.metadata import parse_season_title
+
+        return (
+            "series"
+            if (
+                "/serials/" in url
+                or parse_season_title(item.get("title") or item.get("name"))
+            )
+            else "movie"
+        )
     if site == "cineby":
         if "/tv/" in url:
             return "series"

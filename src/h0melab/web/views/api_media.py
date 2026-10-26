@@ -253,15 +253,22 @@ def series():
         if (group := _flat_group(provider, url)) is not None:
             return _group_detail(group)
         found = provider.series_cls(url=url, **_build_kwargs(provider))
+        megakino_show = provider.name == "MegaKino" and getattr(
+            found, "is_series", False
+        )
         return jsonify(
             {
-                "title": found.title,
+                "title": (getattr(found, "series_title", None) or found.title)
+                if megakino_show
+                else found.title,
                 "poster_url": media.proxy_image(
                     media.absolute_poster(getattr(found, "poster_url", ""), url)
                 ),
                 "description": getattr(found, "description", ""),
                 "genres": getattr(found, "genres", []),
-                "release_year": getattr(found, "release_year", ""),
+                "release_year": ""
+                if megakino_show
+                else getattr(found, "release_year", ""),
                 "is_movie": getattr(found, "is_movie", None)
                 if isinstance(getattr(found, "is_movie", None), bool)
                 else None,
@@ -324,40 +331,42 @@ def seasons():
         if provider is not None and provider.name == "HanimeTV":
             logger.warning("Hanime seasons fallback for %s: %s", url, exc)
             return jsonify({"seasons": []})
+        if (
+            provider is not None
+            and provider.name == "MegaKino"
+            and isinstance(exc, ValueError)
+        ):
+            logger.warning("MegaKino season verification failed: %s", exc)
+            return jsonify({"error": str(exc)}), 422
         logger.exception("Seasons fetch failed")
         return jsonify({"error": str(exc)}), 500
 
 
 def _single_page_seasons(provider, url):
-    """MegaKino serials list every episode on one page, surface them as one season."""
-    if provider.name == "MegaKino" and "/serials/" in url.lower():
-        try:
-            episode = provider.episode_cls(url=url)
-            if episode.is_series:
-                entries = _numbered_serials(episode)
-                return [
-                    {
-                        "url": url.split("#", 1)[0]
-                        + "#mkep="
-                        + str(
-                            next(
-                                entry["number"]
-                                for entry in entries
-                                if entry["season_number"] == number
-                            )
-                        ),
-                        "season_number": number,
-                        "episode_count": sum(
-                            entry["season_number"] == number for entry in entries
-                        ),
-                        "are_movies": False,
-                    }
-                    for number in sorted({entry["season_number"] for entry in entries})
-                ]
-        except Exception as exc:
-            logger.warning("MegaKino series detection failed: %s", exc)
-            raise ValueError("Series details could not be verified") from exc
-        raise ValueError("The series URL did not return a verified episode list")
+    """Use the actual episode picker, not a genre/category in the source URL."""
+    if provider.name == "MegaKino":
+        episode = provider.episode_cls(url=url)
+        if episode.is_series:
+            entries = _numbered_serials(episode)
+            return [
+                {
+                    "url": url.split("#", 1)[0]
+                    + "#mkep="
+                    + str(
+                        next(
+                            entry["number"]
+                            for entry in entries
+                            if entry["season_number"] == number
+                        )
+                    ),
+                    "season_number": number,
+                    "episode_count": sum(
+                        entry["season_number"] == number for entry in entries
+                    ),
+                    "are_movies": False,
+                }
+                for number in sorted({entry["season_number"] for entry in entries})
+            ]
 
     return [{"url": url, "season_number": 1, "episode_count": 1, "are_movies": True}]
 
@@ -366,6 +375,8 @@ def _numbered_serials(episode):
     from .. import media_targets
 
     result = []
+    if not episode.series_episodes:
+        raise ValueError("The series page did not return a verified episode list")
     for entry in episode.series_episodes:
         identity = video_library.parse_title(
             episode.title + " " + entry.get("label", "")
@@ -420,6 +431,13 @@ def episodes():
         if provider is not None and provider.name == "HanimeTV":
             logger.warning("Hanime episodes fallback for %s: %s", url, exc)
             return jsonify({"episodes": []})
+        if (
+            provider is not None
+            and provider.name == "MegaKino"
+            and isinstance(exc, ValueError)
+        ):
+            logger.warning("MegaKino episode verification failed: %s", exc)
+            return jsonify({"error": str(exc)}), 422
         logger.exception("Episodes fetch failed")
         return jsonify({"error": str(exc)}), 500
 
@@ -441,6 +459,8 @@ def _single_page_episodes(provider, url):
             ),
             None,
         )
+        if selected is not None and season is None:
+            raise ValueError("The selected episode is no longer listed by the source")
         if season is not None:
             entries = [entry for entry in entries if entry["season_number"] == season]
         for entry in entries:
@@ -448,8 +468,8 @@ def _single_page_episodes(provider, url):
                 url.split("#", 1)[0] + "#mkep=" + str(entry["number"]),
                 {
                     "media_type": "series",
-                    "title": episode.title,
-                    "year": str(getattr(episode, "release_year", "") or ""),
+                    "title": getattr(episode, "series_title", None) or episode.title,
+                    "year": "",  # Per-season release years must not split the show folder.
                     "season": entry["season_number"],
                     "episode": entry["episode_number"],
                     "end": entry["episode_number"],

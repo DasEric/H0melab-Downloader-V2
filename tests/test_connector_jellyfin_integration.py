@@ -13,6 +13,7 @@ import subprocess
 import threading
 import time
 import uuid
+from html import escape
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.error import HTTPError
@@ -23,6 +24,7 @@ import pytest
 from werkzeug.serving import make_server
 
 from h0melab.config import Audio, Subtitles
+from h0melab.models.megakino.series import MegaKinoEpisode
 from h0melab.web import connector_files, db, worker
 from h0melab.web.views import api_media
 
@@ -117,7 +119,7 @@ def test_real_jellyfin_language_routing_and_owner_deletion(
     alice, bob = users[0][1], users[1][1]
     show = "Connector Integration Series " + suffix
     film = "Connector Integration Film " + suffix
-    series_url = "https://megakino.test/serials/" + suffix
+    series_url = "https://megakino.test/drama/" + suffix + "-staffel-4.html"
     film_url = "https://megakino.test/movies/" + suffix
     if site == "filmpalast":
         series_url = "https://filmpalast.to/stream/" + suffix + "-s01e01"
@@ -212,10 +214,48 @@ def test_real_jellyfin_language_routing_and_owner_deletion(
             self._episode_path.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(source_clips[self.selected_language], self._episode_path)
 
+    class MegaEpisode(MegaKinoEpisode):
+        """Use the production parser, numbering and paths with only HTTP/media stubbed."""
+
+        def _normalize_language(self, language):
+            # This fixture advertises bilingual generated clips, unlike the live site's
+            # German-only player metadata. Keep the production audio verification active.
+            assert language in source_clips
+            return language
+
+        @property
+        def _html(self):
+            is_show = self.url == series_url
+            title = show + " - 4 Staffel" if is_show else film
+            html = f'<meta itemprop="name" content="{escape(title, quote=True)}">'
+            html += '<span itemprop="dateCreated"><a>2026</a></span>'
+            if is_show:
+                html += (
+                    '<select class="se-select"><option value="ep1">Episode 1</option>'
+                )
+                html += '<option value="ep2">Episode 2</option></select>'
+                for number in (1, 2):
+                    html += f'<select class="mr-select" id="ep{number}">'
+                    html += f'<option value="https://voe.sx/e/fixture{number}">VOE</option></select>'
+            return html
+
+        @property
+        def provider_data(self):
+            # The model strips #mkep; its verified identity retains the actual episode.
+            number = self.video_identity.get("episode", 1)
+            result = {(Audio.ENGLISH, Subtitles.NONE): ["VOE"]}
+            if number == 1 or not self.is_series:
+                result[(Audio.GERMAN, Subtitles.NONE)] = ["VOE"]
+            return result
+
+        def download(self):
+            self._episode_path.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source_clips[self.selected_language], self._episode_path)
+
     provider = SimpleNamespace(
         name="MegaKino" if site == "megakino" else "FilmPalast",
-        series_cls=Series,
-        episode_cls=Episode,
+        series_cls=MegaEpisode if site == "megakino" else Series,
+        episode_cls=MegaEpisode if site == "megakino" else Episode,
     )
     monkeypatch.setattr(api_media, "resolve_provider", lambda url: provider)
     monkeypatch.setattr(worker, "resolve_provider", lambda url: provider)
@@ -380,7 +420,7 @@ def test_real_jellyfin_language_routing_and_owner_deletion(
         jf("/Plugins/" + plugin_id + "/Configuration", "POST", config, admin, 204)
         jf("/AniWorldRequests/Admin/Targets", token=alice, expected=403)
         assert jf("/AniWorldRequests/Status", token=alice)["configured"]
-        show_folder = downloads / (show + " (2026)")
+        show_folder = downloads / (show if site == "megakino" else show + " (2026)")
         show_folder.mkdir()
         (show_folder / "tvshow.nfo").write_text(
             f"<tvshow><title>{show}</title><year>2026</year></tvshow>"
@@ -427,6 +467,12 @@ def test_real_jellyfin_language_routing_and_owner_deletion(
         scan()
         assert len(list(downloads.rglob("*english-dub.mkv"))) == 2
         assert not list(movies.rglob("*english-dub.mkv"))
+        if site == "megakino":
+            assert (
+                len(list((show_folder / "Season 04").glob("*S04E*english-dub.mkv")))
+                == 2
+            )
+            assert not list(downloads.glob("*Staffel*"))
         selection, plan = plan_request(show, series_url, "series", alice)
         assert plan["coverage"]["English Dub"]["existing_count"] == 2
         assert plan["coverage"]["German Dub"]["missing_count"] == 1

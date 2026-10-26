@@ -448,7 +448,7 @@ SERIENSTREAM_EPISODE_PATTERN = re.compile(
 )
 
 MEGAKINO_SERIES_PATTERN = re.compile(
-    r"^https?://(?:www\.)?megakino[\w-]*\.[^/]+/(?:action|films|serials)/[^?#]+(?:\.html)?/?(?:#mkep=\d+)?$",
+    r"^https?://(?:www\.)?megakino[\w-]*\.[a-z0-9.-]+/[a-z0-9_-]+/[^/?#]+/?(?:#mkep=\d+)?$",
     re.IGNORECASE,
 )
 

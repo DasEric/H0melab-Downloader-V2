@@ -1,6 +1,6 @@
 # H0melab Downloader v2
 
-[![Version](https://img.shields.io/badge/version-2.1.1-2563eb)](https://github.com/DasEric/H0melab-Downloader-V2/releases)
+[![Version](https://img.shields.io/badge/version-2.3.1-2563eb)](https://github.com/DasEric/H0melab-Downloader-V2/releases)
 [![Tests](https://github.com/DasEric/H0melab-Downloader-V2/actions/workflows/tests.yaml/badge.svg)](https://github.com/DasEric/H0melab-Downloader-V2/actions/workflows/tests.yaml)
 [![License](https://img.shields.io/github/license/DasEric/H0melab-Downloader-V2)](LICENSE)
 
@@ -116,13 +116,15 @@ Administrators can import or edit a theme under **Settings → Appearance**. The
 
 ### Jellyfin connector
 
-Use AniWorld Requests **1.5.0 or newer** with H0melab Downloader **2.3.0 or newer**. Create a full-access API key, then configure the connection in the Jellyfin plugin. Assign the central movie and show destinations to the corresponding Jellyfin libraries in the plugin settings; it verifies that the selected paths share the same storage even when container paths differ.
+Use AniWorld Requests **1.5.0 or newer** with H0melab Downloader **2.3.1 or newer**. Create a full-access API key, then configure the connection in the Jellyfin plugin. Assign the central movie and show destinations to the corresponding Jellyfin libraries in the plugin settings; it verifies that the selected paths share the same storage even when container paths differ.
 
 ### Movie/show destinations and grouped series
 
 In **Settings → Custom Paths → Movie and show destinations**, select two existing, separate mounts. The detected content type then takes priority over site defaults for both native downloads and connector requests. A show from a movie site goes to the show mount. Conflicting manual paths, unavailable mounts and changed queued destinations are reported rather than silently redirected. Without this setup, existing source defaults remain in use.
 
 FilmPalast/Filmo episode pages such as `SiloS01E01` and `SiloS02E01` appear under one source-specific **Silo** card. Open it to verify the current seasons and episodes. A source failure or incomplete page list is not presented as a complete show. Different providers and remakes remain separate; alternative hosters for the same episode do not become duplicate episode downloads.
+
+MegaKino season pages use the season stated in the title, including `Staffel 2` and `4 Staffel`, even when the page is listed under a film genre. Seasons of `Tulsa King`, for example, share one `Tulsa King` folder with separate `Season 02`, `Season 04`, etc. The date of an individual season is not used as the show's premiere year. If the source omits or contradicts the episode numbering, the request stops instead of putting the show in the movie library.
 
 Videos are written under `Show/Season 01/Show - S01E01 - german-dub.mkv` or a movie's own folder. Verified years are included when known. Variants remain separate filenames, without an extra language-level library folder. Point Jellyfin/Plex movie and show libraries at the corresponding roots. No Plex account connection is required for this layout.
 
@@ -162,6 +164,7 @@ For a source installation, activate the virtual environment and run `pip install
 - If a custom theme hides controls, open `/settings?nocss=1` and remove the theme.
 - If a catalogue requires a captcha, configure its browser/captcha options under **Settings**.
 - A title on the availability watchlist is queued only after the configured language and a usable provider are available.
+- For MegaKino season-loading errors on older builds, update the downloader to **2.3.1 or newer** and reopen the title. Existing misplaced downloads are not moved automatically.
 
 ## Local development
 

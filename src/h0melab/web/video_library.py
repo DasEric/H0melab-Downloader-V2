@@ -308,6 +308,9 @@ def variant_url(url, language, hoster):
 
 
 def identity_for_episode(episode, url):
+    source_identity = getattr(episode, "video_identity", None)
+    if isinstance(source_identity, dict):
+        return source_identity
     known = by_url(url)
     if known:
         parsed = parse_title(getattr(episode, "title", ""))

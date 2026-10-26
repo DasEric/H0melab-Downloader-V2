@@ -7,6 +7,8 @@ from urllib.parse import urljoin, urlparse
 
 import niquests
 
+from .metadata import episode_numbers, parse_season_title
+
 try:
     from ...config import (
         GLOBAL_SESSION,
@@ -728,11 +730,47 @@ class MegaKinoEpisode:
     @property
     def is_series(self):
         """True when the page is a serial (per-episode player selects)."""
-        return bool(self.series_episodes)
+        return bool(
+            self.series_episodes
+            or parse_season_title(self.title)
+            or "/serials/" in urlparse(self.url).path.lower()
+        )
+
+    @property
+    def series_title(self):
+        page = parse_season_title(self.title)
+        return page[0] if page else self.title
+
+    @property
+    def video_identity(self):
+        """Verify direct queue requests as well as requests opened via /episodes."""
+        if not self.is_series:
+            return {
+                "media_type": "movie",
+                "title": self.title,
+                "year": str(self.release_year or ""),
+            }
+        index = self.__episode_index if self.__episode_index is not None else 1
+        entry = next((ep for ep in self.series_episodes if ep["number"] == index), None)
+        if entry is None:
+            raise ValueError("The selected episode is no longer listed by the source")
+        if "season_number" not in entry or "episode_number" not in entry:
+            raise ValueError(
+                "The source did not confirm season/episode numbers; no season 1 was guessed"
+            )
+        return {
+            "media_type": "series",
+            "title": self.series_title,
+            # A season's dateCreated is not a verified series premiere year.
+            "year": "",
+            "season": entry["season_number"],
+            "episode": entry["episode_number"],
+            "end": entry["episode_number"],
+        }
 
     @property
     def series_episodes(self):
-        """List of serial episodes: {number, id, label, providers}.
+        """Serial entries retain selector positions and optional verified S/E numbers.
 
         Empty for movie pages, which use the tabs-block iframe layout instead.
         """
@@ -753,21 +791,34 @@ class MegaKinoEpisode:
             return []
 
         episodes = []
+        seen = set()
         for index, option in enumerate(
             re.finditer(
-                r'<option\s+value=["\']([^"\']+)["\']\s*>(.*?)</option>',
+                r'<option\b[^>]*\bvalue=["\']([^"\']+)["\'][^>]*>(.*?)</option>',
                 select_match.group(1),
                 re.DOTALL,
             ),
             start=1,
         ):
             episode_id = option.group(1).strip()
-            label = re.sub(r"\s+", " ", option.group(2)).strip() or f"Episode {index}"
+            label = re.sub(
+                r"\s+", " ", unescape(re.sub(r"<[^>]*>", "", option.group(2)))
+            ).strip()
+            numbers = episode_numbers(self.title, label)
+            verified = {}
+            if numbers:
+                if numbers in seen:
+                    raise ValueError(
+                        "The source returned duplicate season/episode numbers"
+                    )
+                seen.add(numbers)
+                verified = {"season_number": numbers[0], "episode_number": numbers[1]}
             episodes.append(
                 {
                     "number": index,
                     "id": episode_id,
-                    "label": label,
+                    "label": label or f"Episode {index}",
+                    **verified,
                     "providers": self.__extract_series_episode_providers(episode_id),
                 }
             )
