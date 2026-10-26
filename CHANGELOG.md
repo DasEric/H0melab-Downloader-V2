@@ -1,5 +1,24 @@
 # Changes
 
+## 2.3.0
+
+- Group FilmPalast/Filmo episode-page results into durable source-scoped shows with real URL anchors, separate seasons and provider/language variants. Opening a show follows verified pagination rather than assuming the first result page is complete.
+- Add central movie/show destination settings shared by native downloads and Connector 1.5.0. Validate non-overlapping roots, retain root snapshots and revision-check queued work. A site default or manual path cannot silently override a detected content type.
+- Carry server-observed media identity into the worker and standardize actual video output to show/season/SxxExx or movie/title folders, preserving separate language variants and exact-file receipts. Detect sanitized filename collisions.
+- Support one logical request with resumable 500-entry work sections up to 20,000 entries. Unknown numbering and incomplete source lists remain errors rather than invented season 1 assignments.
+- Preserve old configuration until destinations are explicitly saved. Existing media is not automatically moved; review misplaced files and queued destination conflicts separately. Finish or cancel new jobs before downgrading.
+- Add HTTP/filesystem regressions and extend real-Jellyfin integration coverage. Plex-compatible naming follows its documented layout; no Plex server is provisioned by the downloader.
+
+## 2.2.0
+
+- Add connector protocol 1 with per-entry movie/show destinations, verified root snapshots, language/provider options and accepted-item counts.
+- Persist exact-file receipts independently of queue history. Newly created files, existing files and deleted files remain distinct; retries do not transfer ownership.
+- Add full-access receipt queries, shared-mount verification and exact version-checked deletion. File locks are released by the operating system after a process exits. Deletion never recursively removes a title folder.
+- Keep connector language variants in separate filenames and prevent overwriting/remuxing an existing variant. Preserve resolution naming without replacing another file.
+- Correct missing per-episode SerienStream languages instead of copying the first episode's languages across a season. Language failures remain unknown; Hanime's implicit provider is confirmed from its stream and failed MegaKino series detection no longer becomes a movie.
+- Add a bounded short-lived provider cache for connector previews, bypassed during submission/approval validation.
+- Add file-receipt regression tests and an opt-in real-Jellyfin integration test using synthetic source providers and real media files.
+
 ## 2.1.1
 
 - Remove the category selector from both native pages. Restore the existing video/manga source tabs and all book/audio catalog source tabs without category-driven hiding or navigation.

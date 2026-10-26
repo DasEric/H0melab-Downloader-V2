@@ -65,6 +65,7 @@
         <section class="card">
           <h2 data-i18n="settings.downloads">Downloads</h2>
           <h3 data-i18n="settings.download_path">Download Path</h3>
+          <p class="hint" id="typedPathHint" hidden data-i18n="settings.typed_path_hint">Central movie/show destinations are active. Videos use the verified roots and standard title/season names shown below, separate language filenames and individual movie folders. The legacy download path and folder toggles do not override these destinations.</p>
           <div class="inline-form">
             <input type="text" id="downloadPath" placeholder="/path/to/downloads" />
             <button class="btn btn-primary" id="saveDownloadPathBtn" data-i18n="common.save">Save</button>
@@ -82,7 +83,7 @@
             </div>
           </div>
           <p class="hint schedule-summary invalid" id="pathPreviewError" hidden></p>
-          <p class="hint" data-i18n="settings.preview_hint">
+          <p class="hint" id="legacyPathHint" data-i18n="settings.preview_hint">
             Where a download ends up, the path above and the current naming template put together.
             Movies do not use the template beyond its file extension.
           </p>
@@ -199,6 +200,14 @@
           <p class="hint" data-i18n="settings.default_for_hint">
             Tick the sites a path should be the pre-selected download folder for.
           </p>
+          <h3 data-i18n="settings.media_destinations">Movie and show destinations</h3>
+          <p class="hint" data-i18n="settings.media_destinations_hint">Content type takes priority over a site's default path. Existing files are not moved. Select two separate, non-overlapping mounts.</p>
+          <div class="inline-form media-target-form">
+            <label><span data-i18n="settings.movie_destination">Movies</span><select id="movieDestination"></select></label>
+            <label><span data-i18n="settings.show_destination">Shows</span><select id="showDestination"></select></label>
+            <button class="btn btn-primary" id="saveMediaTargets" data-i18n="common.save">Save</button>
+          </div>
+          <p class="hint" id="mediaTargetsStatus" role="status"></p>
         </section>
       </section>
 

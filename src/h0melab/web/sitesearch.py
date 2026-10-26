@@ -1,8 +1,8 @@
 """Site search plumbing shared by the web search API and the Discord bot.
 
 Each site's search returns a slightly different shape, this normalises them all
-to {title, url} and filters out season/episode links so only series-level hits
-come back.
+to title-level results. Native parent-series links are retained, and flat
+episode pages are collected under durable source-scoped series anchors.
 """
 
 import re
@@ -125,7 +125,23 @@ def search(site, keyword):
             continue
         results.append(
             {
-                **{key: item[key] for key in ("year", "release_year", "original_title", "alternative_titles", "tmdb_id") if key in item},
+                **{
+                    key: item[key]
+                    for key in (
+                        "year",
+                        "release_year",
+                        "original_title",
+                        "alternative_titles",
+                        "tmdb_id",
+                        "series_id",
+                        "series_url",
+                        "series_title",
+                        "series_year",
+                        "season_number",
+                        "episode_number",
+                    )
+                    if key in item
+                },
                 "title": _clean_title(title),
                 "url": url,
                 "poster": _poster(item),
@@ -133,7 +149,9 @@ def search(site, keyword):
                 "media_type": media_type(site, {**item, "url": url}),
             }
         )
-    return results
+    from .video_library import group_results
+
+    return group_results(site, results)
 
 
 def _resolve_url(site, item):

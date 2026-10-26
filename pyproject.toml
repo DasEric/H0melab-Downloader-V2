@@ -1,6 +1,6 @@
 [project]
 name = "h0melab-downloader"
-version = "2.1.1"
+version = "2.3.0"
 authors = [{ name = "DasEric" }]
 maintainers = [{ name = "DasEric" }]
 description = "Browser-based downloader and media automation hub for a homelab."

@@ -12,6 +12,16 @@
   const STRINGS = {
     en: {},
     de: {
+      "settings.media_destinations": "Film- und Serienziele",
+      "settings.typed_path_hint": "Zentrale Film-/Serienziele sind aktiv. Videos verwenden die geprüften Mounts und die unten gezeigte Titel-/Staffelstruktur, getrennte Sprachdateien und einzelne Filmordner. Der bisherige Downloadpfad und die Ordnerschalter überschreiben diese Ziele nicht.",
+      "settings.media_destinations_hint": "Der Inhaltstyp hat Vorrang vor dem Quellenstandard. Bestehende Dateien werden nicht verschoben. Zwei getrennte, nicht ineinander liegende Mounts auswählen.",
+      "settings.movie_destination": "Filme",
+      "settings.show_destination": "Serien",
+      "settings.routing_active": "Die Typzuordnung ist für alle Video-Downloads aktiv.",
+      "settings.routing_inactive": "Noch nicht eingerichtet: Es gelten weiterhin die bisherigen Quellenstandards.",
+      "index.large_show": "{count} Folgen als einen Auftrag mit {sections} fortsetzbaren Arbeitsabschnitten einreihen?",
+      "index.grouped_show": "Serie — Staffeln und Folgen im Detail",
+      "queue.work_sections": "{count} fortsetzbare Arbeitsabschnitte",
       "nav.home": "Start",
       "nav.video": "Filme / Serien",
       "nav.books_audio": "eBooks / Hörbücher",

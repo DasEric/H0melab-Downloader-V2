@@ -263,7 +263,11 @@ def upcoming_checks_per_day():
         value = int(raw)
     except (TypeError, ValueError):
         return DEFAULT_UPCOMING_CHECKS_PER_DAY
-    return value if MIN_UPCOMING_CHECKS_PER_DAY <= value <= MAX_UPCOMING_CHECKS_PER_DAY else DEFAULT_UPCOMING_CHECKS_PER_DAY
+    return (
+        value
+        if MIN_UPCOMING_CHECKS_PER_DAY <= value <= MAX_UPCOMING_CHECKS_PER_DAY
+        else DEFAULT_UPCOMING_CHECKS_PER_DAY
+    )
 
 
 def upcoming_interval():
@@ -361,6 +365,49 @@ def _preview_episode(root, language):
 def preview_paths(download_path=None):
     """The full path a movie and an episode would be written to."""
     from ..models.common.common import movie_folder_enabled
+    from . import media_targets, video_library
+
+    if media_targets.read()["enabled"]:
+        try:
+            _, shows, _ = media_targets.resolve("series")
+            _, movies, _ = media_targets.resolve("movie")
+            extension = _preview_episode(shows, default_language())._file_extension
+
+            def example(root, identity):
+                value = video_library.output_path(root, identity).with_suffix(
+                    "." + extension
+                )
+                return str(
+                    value.with_name(
+                        value.stem
+                        + " - "
+                        + paths.lang_folder_for(default_language())
+                        + value.suffix
+                    )
+                )
+
+            return {
+                "typed": True,
+                "episode": example(
+                    shows,
+                    {
+                        "title": "Example Show",
+                        "year": "2023",
+                        "media_type": "series",
+                        "season": 1,
+                        "episode": 1,
+                    },
+                ),
+                "movie": example(
+                    movies,
+                    {"title": "Example Movie", "year": "2023", "media_type": "movie"},
+                ),
+            }
+        except (ValueError, OSError):
+            return {
+                "typed": True,
+                "error": "Verify and save the central movie/show destinations again",
+            }
 
     root = (
         paths.expand(download_path) if download_path else paths.default_download_path()
@@ -453,7 +500,9 @@ def _persist_settings(updates):
         # keeps rollback possible and lets an older container read a volume
         # after a test upgrade without losing settings.
         compatible = dict(updates)
-        compatible.update({modern_env_key(key): value for key, value in updates.items()})
+        compatible.update(
+            {modern_env_key(key): value for key, value in updates.items()}
+        )
         persist_env_values(PANEL_SETTINGS_PATH, compatible)
     except OSError as exc:
         raise SettingsPersistenceError(
@@ -632,7 +681,10 @@ def update_settings(data):
             value = int(raw)
         except (TypeError, ValueError):
             raise SettingsError("hls_concurrency must be an integer") from None
-        if str(raw).strip() != str(value) or not MIN_HLS_CONCURRENCY <= value <= MAX_HLS_CONCURRENCY:
+        if (
+            str(raw).strip() != str(value)
+            or not MIN_HLS_CONCURRENCY <= value <= MAX_HLS_CONCURRENCY
+        ):
             raise SettingsError(
                 f"hls_concurrency must be between {MIN_HLS_CONCURRENCY} and {MAX_HLS_CONCURRENCY}"
             )
@@ -646,7 +698,10 @@ def update_settings(data):
             value = int(raw)
         except (TypeError, ValueError):
             raise SettingsError("upcoming_checks_per_day must be an integer") from None
-        if str(raw).strip() != str(value) or not MIN_UPCOMING_CHECKS_PER_DAY <= value <= MAX_UPCOMING_CHECKS_PER_DAY:
+        if (
+            str(raw).strip() != str(value)
+            or not MIN_UPCOMING_CHECKS_PER_DAY <= value <= MAX_UPCOMING_CHECKS_PER_DAY
+        ):
             raise SettingsError(
                 f"upcoming_checks_per_day must be between {MIN_UPCOMING_CHECKS_PER_DAY} and {MAX_UPCOMING_CHECKS_PER_DAY}"
             )
@@ -701,7 +756,10 @@ def _env_sections():
                 ),
                 ("H0MELAB_HLS_CONCURRENCY", str(hls_concurrency())),
                 (UPCOMING_CHECKS_KEY, str(upcoming_checks_per_day())),
-                *( (env_key, str(media_library_path(kind))) for kind, env_key in MEDIA_LIBRARY_KEYS.items() ),
+                *(
+                    (env_key, str(media_library_path(kind)))
+                    for kind, env_key in MEDIA_LIBRARY_KEYS.items()
+                ),
                 (
                     "H0MELAB_LANG_SEPARATION",
                     _one_or_zero(paths.lang_separation_enabled()),

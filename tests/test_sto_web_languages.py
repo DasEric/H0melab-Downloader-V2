@@ -47,7 +47,7 @@ def test_season_rows_avoid_all_episode_page_probes(monkeypatch):
     ]
 
 
-def test_missing_season_flags_probe_only_one_episode(monkeypatch):
+def test_missing_season_flags_probe_each_episode(monkeypatch):
     provider_calls = []
     season = SimpleNamespace(
         episodes=[FakeEpisode(1, provider_calls), FakeEpisode(2, provider_calls)],
@@ -64,5 +64,5 @@ def test_missing_season_flags_probe_only_one_episode(monkeypatch):
 
     results = api_media._season_episodes(_provider(season), "season-url", None)
 
-    assert provider_calls == [1]
+    assert provider_calls == [1, 2]
     assert all(result["available_languages"] == ["German Dub"] for result in results)

@@ -187,6 +187,10 @@
     if (!preview) return;
     const box = el("pathPreview");
     const problem = el("pathPreviewError");
+    el("typedPathHint").hidden = !preview.typed;
+    el("legacyPathHint").hidden = Boolean(preview.typed);
+    el("langSeparation").disabled = Boolean(preview.typed);
+    el("movieFolder").disabled = Boolean(preview.typed);
 
     // A template the downloader cannot fill in has no path to show, only a
     // reason, and that reason is what would break the first download
@@ -608,6 +612,17 @@
   );
 
   /* ===== Custom paths ===== */
+  let mediaTargetRevision = 0;
+  el("saveMediaTargets").addEventListener("click", async () => {
+    const button = el("saveMediaTargets"); button.disabled = true;
+    try {
+      await apiSend("/api/media-targets", "PUT", { movie: Number(el("movieDestination").value), series: Number(el("showDestination").value), revision: mediaTargetRevision });
+      await loadCustomPaths();
+      refreshPathPreview();
+      showToast(t("common.saved", "Saved"));
+    } catch (error) { showToast(error.message); }
+    finally { button.disabled = false; }
+  });
   function renderCustomPaths(paths) {
     const body = el("customPathsBody");
     if (!paths.length) {
@@ -645,6 +660,15 @@
     try {
       const data = await apiFetch("/api/custom-paths");
       renderCustomPaths(data.paths || []);
+      const targets = await apiFetch("/api/media-targets");
+      mediaTargetRevision = targets.revision;
+      for (const [id, role] of [["movieDestination", "movie"], ["showDestination", "series"]]) {
+        const select = el(id); select.replaceChildren();
+        const empty = document.createElement("option"); empty.value = ""; empty.textContent = t("index.default", "Select a mount"); select.appendChild(empty);
+        (data.paths || []).forEach((path) => { const option = document.createElement("option"); option.value = path.id; option.textContent = path.name + " — " + path.path; select.appendChild(option); });
+        select.value = targets[role] || "";
+      }
+      el("mediaTargetsStatus").textContent = targets.enabled ? t("settings.routing_active", "Content-type routing is active for all video downloads.") : t("settings.routing_inactive", "Not configured: existing source defaults are still used.");
     } catch (error) {
       showToast(error.message);
     }

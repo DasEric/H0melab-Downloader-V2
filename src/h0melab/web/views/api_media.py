@@ -1,6 +1,7 @@
 """Search, browse and the series/season/episode endpoints."""
 
 import re
+import threading
 import time
 
 from flask import Response, jsonify, request
@@ -28,7 +29,7 @@ from ...search import (
     fetch_popular_series,
     random_anime,
 )
-from .. import media, sitesearch
+from .. import media, sitesearch, video_library
 from ..search_contract import (
     BROWSE_PATHS,
     media_type,
@@ -41,8 +42,10 @@ logger = get_logger(__name__)
 # Browse rows change slowly, so cache them for an hour per process.
 BROWSE_TTL = 3600
 _browse_cache = {}
+_offer_cache = {}
+_offer_lock = threading.Lock()
 
-# Sites that list one movie per page instead of seasons.
+# Legacy single-page models; grouped episode families are resolved first.
 SINGLE_PAGE_SITES = ("MegaKino", "FilmPalast", "Filmo")
 
 # These resolve their stream per episode, so the language is read once at the
@@ -105,6 +108,7 @@ def search():
         hits = sitesearch.search(site, keyword)
         if getattr(hits, "error", None):
             return jsonify({"error": hits.error}), 502
+        hits = video_library.group_results(site, hits)
         results = [
             {
                 **item,
@@ -165,6 +169,76 @@ def _hanime_fallback_title(url):
     return title.title() if title else slug
 
 
+def _flat_group(provider, url):
+    source = {"FilmPalast": "filmpalast", "Filmo": "filmo"}.get(provider.name)
+    if not source:
+        return None
+    episode = provider.episode_cls(url=url, **_build_kwargs(provider))
+    title = getattr(episode, "title", "")
+    if video_library.parse_title(title):
+        video_library.group_results(source, [{"title": title, "url": url}])
+        return video_library.resolve_group(url)
+    return None
+
+
+def _group_detail(group):
+    return jsonify(
+        {
+            "title": group["title"],
+            "release_year": group["year"],
+            "video_id": group["id"],
+            "is_movie": False,
+            "media_type": "series",
+            "description": "",
+            "poster_url": "",
+            "genres": [],
+        }
+    )
+
+
+def _group_seasons(group):
+    rows = video_library.active_members(group)
+    numbers = sorted({row["season"] for row in rows})
+    return jsonify(
+        {
+            "complete": True,
+            "seasons": [
+                {
+                    "url": next(row["url"] for row in rows if row["season"] == number),
+                    "season_number": number,
+                    "episode_count": sum(row["season"] == number for row in rows),
+                    "are_movies": False,
+                }
+                for number in numbers
+            ],
+        }
+    )
+
+
+def _group_episodes(group):
+    rows = [
+        row
+        for row in video_library.active_members(group)
+        if row["season"] == group["season"]
+    ]
+    return jsonify(
+        {
+            "complete": True,
+            "episodes": [
+                {
+                    "url": row["url"],
+                    "season_number": row["season"],
+                    "episode_number": row["episode"],
+                    "title_en": f"{group['title']} S{row['season']:02d}E{row['episode']:02d}",
+                    "available_languages": [],
+                    "downloaded": False,
+                }
+                for row in rows
+            ],
+        }
+    )
+
+
 def series():
     url = _requested_url()
     if not url:
@@ -172,7 +246,12 @@ def series():
 
     provider = None
     try:
+        group = video_library.resolve_group(url)
+        if group:
+            return _group_detail(group)
         provider = resolve_provider(url)
+        if (group := _flat_group(provider, url)) is not None:
+            return _group_detail(group)
         found = provider.series_cls(url=url, **_build_kwargs(provider))
         return jsonify(
             {
@@ -183,6 +262,10 @@ def series():
                 "description": getattr(found, "description", ""),
                 "genres": getattr(found, "genres", []),
                 "release_year": getattr(found, "release_year", ""),
+                "is_movie": getattr(found, "is_movie", None)
+                if isinstance(getattr(found, "is_movie", None), bool)
+                else None,
+                "media_type": _detail_media_type(found),
             }
         )
     except Exception as exc:
@@ -209,7 +292,12 @@ def seasons():
 
     provider = None
     try:
+        group = video_library.resolve_group(url)
+        if group:
+            return _group_seasons(group)
         provider = resolve_provider(url)
+        if (group := _flat_group(provider, url)) is not None:
+            return _group_seasons(group)
         if provider.name in SINGLE_PAGE_SITES:
             return jsonify({"seasons": _single_page_seasons(provider, url)})
 
@@ -246,18 +334,67 @@ def _single_page_seasons(provider, url):
         try:
             episode = provider.episode_cls(url=url)
             if episode.is_series:
+                entries = _numbered_serials(episode)
                 return [
                     {
-                        "url": url,
-                        "season_number": 1,
-                        "episode_count": len(episode.series_episodes),
+                        "url": url.split("#", 1)[0]
+                        + "#mkep="
+                        + str(
+                            next(
+                                entry["number"]
+                                for entry in entries
+                                if entry["season_number"] == number
+                            )
+                        ),
+                        "season_number": number,
+                        "episode_count": sum(
+                            entry["season_number"] == number for entry in entries
+                        ),
                         "are_movies": False,
                     }
+                    for number in sorted({entry["season_number"] for entry in entries})
                 ]
         except Exception as exc:
             logger.warning("MegaKino series detection failed: %s", exc)
+            raise ValueError("Series details could not be verified") from exc
+        raise ValueError("The series URL did not return a verified episode list")
 
     return [{"url": url, "season_number": 1, "episode_count": 1, "are_movies": True}]
+
+
+def _numbered_serials(episode):
+    from .. import media_targets
+
+    result = []
+    for entry in episode.series_episodes:
+        identity = video_library.parse_title(
+            episode.title + " " + entry.get("label", "")
+        )
+        if identity:
+            season, number = identity["season"], identity["episode"]
+        elif isinstance(entry.get("season_number"), int) and isinstance(
+            entry.get("episode_number"), int
+        ):
+            season, number = entry["season_number"], entry["episode_number"]
+        elif media_targets.read()["enabled"]:
+            raise ValueError(
+                "The source did not confirm season/episode numbers; no season 1 was guessed"
+            )
+        else:
+            season, number = (
+                1,
+                entry["number"],
+            )  # Retain the unconfigured legacy contract.
+        result.append({**entry, "season_number": season, "episode_number": number})
+    return result
+
+
+def _detail_media_type(found):
+    movie = getattr(found, "is_movie", None)
+    if isinstance(movie, bool):
+        return "movie" if movie else "series"
+    series = getattr(found, "is_series", None)
+    return ("series" if series else "movie") if isinstance(series, bool) else ""
 
 
 def episodes():
@@ -268,7 +405,12 @@ def episodes():
     series_url = request.args.get("series_url", "").strip() or None
     provider = None
     try:
+        group = video_library.resolve_group(url)
+        if group:
+            return _group_episodes(group)
         provider = resolve_provider(url)
+        if (group := _flat_group(provider, url)) is not None:
+            return _group_episodes(group)
         if provider.name in SINGLE_PAGE_SITES:
             return jsonify({"episodes": _single_page_episodes(provider, url)})
         if provider.name == "MangaFire":
@@ -286,24 +428,61 @@ def _single_page_episodes(provider, url):
     episode = provider.episode_cls(url=url, selected_language="German Dub")
 
     if provider.name == "MegaKino" and episode.is_series:
+        entries = _numbered_serials(episode)
+        fragment = url.split("#mkep=", 1)
+        selected = (
+            int(fragment[1]) if len(fragment) == 2 and fragment[1].isdigit() else None
+        )
+        season = next(
+            (
+                entry["season_number"]
+                for entry in entries
+                if entry["number"] == selected
+            ),
+            None,
+        )
+        if season is not None:
+            entries = [entry for entry in entries if entry["season_number"] == season]
+        for entry in entries:
+            video_library.remember(
+                url.split("#", 1)[0] + "#mkep=" + str(entry["number"]),
+                {
+                    "media_type": "series",
+                    "title": episode.title,
+                    "year": str(getattr(episode, "release_year", "") or ""),
+                    "season": entry["season_number"],
+                    "episode": entry["episode_number"],
+                    "end": entry["episode_number"],
+                },
+            )
         return [
             {
-                "url": f"{url}#mkep={entry['number']}",
-                "episode_number": entry["number"],
+                "url": url.split("#", 1)[0] + "#mkep=" + str(entry["number"]),
+                "season_number": entry["season_number"],
+                "episode_number": entry["episode_number"],
                 "title_de": "",
                 "title_en": entry["label"] or f"Episode {entry['number']}",
                 "downloaded": False,
                 "available_languages": ["German Dub"] if entry["providers"] else [],
             }
-            for entry in episode.series_episodes
+            for entry in entries
         ]
 
     try:
         languages = media.language_labels(episode.provider_data)
     except Exception as exc:
         logger.warning("%s language detection failed: %s", provider.name, exc)
-        languages = ["German Dub"]
+        languages = []
 
+    title = getattr(episode, "title", "") or getattr(episode, "title_cleaned", "")
+    video_library.remember(
+        url,
+        {
+            "media_type": "movie",
+            "title": title,
+            "year": str(getattr(episode, "release_year", "") or ""),
+        },
+    )
     return [
         {
             "url": url,
@@ -348,8 +527,6 @@ def _season_episodes(provider, url, series_url):
     override_languages = SEASON_LANGUAGE_OVERRIDES.get(provider.name)
     season_languages = list(override_languages) if override_languages else None
     episode_languages = {}
-    fallback_languages = None
-    fallback_languages_resolved = False
     if provider.name == "SerienStream":
         episode_languages = dict(getattr(season, "episode_languages", {}) or {})
     if season_languages is None and provider.name in SEASON_LEVEL_LANGUAGE_SITES:
@@ -357,10 +534,28 @@ def _season_episodes(provider, url, series_url):
             season_languages = list(getattr(season, "language_labels", []) or [])
         except Exception as exc:
             logger.warning("%s language detection failed: %s", provider.name, exc)
-            season_languages = ["German Dub"]
+            season_languages = []
 
     results = []
     for episode in season.episodes:
+        if (
+            found
+            and isinstance(getattr(found, "title", None), str)
+            and isinstance(getattr(season, "season_number", None), int)
+            and provider.name != "MangaFire"
+        ):
+            kind = "movie" if getattr(season, "are_movies", False) else "series"
+            video_library.remember(
+                episode.url,
+                {
+                    "media_type": kind,
+                    "title": found.title,
+                    "year": str(getattr(found, "release_year", "") or ""),
+                    "season": season.season_number,
+                    "episode": episode.episode_number,
+                    "end": episode.episode_number,
+                },
+            )
         if season_languages is not None:
             languages = season_languages
         elif provider.name == "SerienStream":
@@ -368,21 +563,12 @@ def _season_episodes(provider, url, series_url):
             if row_languages is not None:
                 languages = list(row_languages)
             else:
-                # Alternate/older pages may omit the row flags. Probe one
-                # episode at most and reuse its labels instead of requesting
-                # every episode page in the season.
-                if not fallback_languages_resolved:
-                    try:
-                        fallback_languages = media.language_labels(
-                            episode.provider_data
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "SerienStream language detection failed: %s", exc
-                        )
-                        fallback_languages = ["German Dub"]
-                    fallback_languages_resolved = True
-                languages = fallback_languages
+                # Missing flags on one episode say nothing about the next one.
+                try:
+                    languages = media.language_labels(episode.provider_data)
+                except Exception as exc:
+                    logger.warning("SerienStream language detection failed: %s", exc)
+                    languages = []
         else:
             languages = media.language_labels(episode.provider_data)
         if provider.name == "HanimeTV" and not languages:
@@ -456,20 +642,42 @@ def providers():
     if not url:
         return jsonify({"error": "url is required"}), 400
 
+    cache = request.args.get("cache") == "1"
+    cache_key = (url, english_sub_disabled())
+    if cache and request.args.get("refresh") != "1":
+        with _offer_lock:
+            stored = _offer_cache.get(cache_key)
+            if stored and stored[0] > time.monotonic():
+                return jsonify({"providers": stored[1]})
+
+    def result(options):
+        if cache:
+            with _offer_lock:
+                if len(_offer_cache) >= 1024:
+                    _offer_cache.pop(next(iter(_offer_cache)))
+                _offer_cache[cache_key] = (time.monotonic() + 30, options)
+        return jsonify({"providers": options})
+
     try:
+        if video_library.by_url(url):
+            merged = {}
+            for _, options in video_library.variant_offers(url):
+                for label, hosters in options.items():
+                    merged.setdefault(label, set()).update(hosters)
+            return result({label: sorted(hosters) for label, hosters in merged.items()})
         provider = resolve_provider(url)
         if provider.name == "MangaFire":
-            return jsonify({"providers": {}})
+            return result({})
         if provider.name == "Cineby":
-            return jsonify({"providers": _cineby_providers(provider, url)})
+            return result(_cineby_providers(provider, url))
 
         episode = provider.episode_cls(url=url, **_build_kwargs(provider))
-        return jsonify(
-            {
-                "providers": media.provider_map(
-                    episode.provider_data, drop_english_sub=english_sub_disabled()
-                )
-            }
+        if provider.name == "HanimeTV":
+            return result({"Japanese": ["HanimeTV"]} if episode.stream_url else {})
+        return result(
+            media.provider_map(
+                episode.provider_data, drop_english_sub=english_sub_disabled()
+            )
         )
     except Exception as exc:
         logger.exception("Providers fetch failed")
@@ -478,7 +686,7 @@ def providers():
 
 def _cineby_providers(provider, url):
     """Cineby has one implicit hoster, but German audio only for some titles."""
-    labels = ["English Dub"]
+    labels = []
     try:
         episode = provider.episode_cls(url=url)
         labels = list(episode.available_language_labels) or labels
@@ -689,9 +897,18 @@ def _make_browse_view(key, fetch):
             return jsonify({"error": f"Failed to fetch {key.replace('_', ' ')}"}), 502
         if results is None:
             return jsonify({"error": f"Failed to fetch {key.replace('_', ' ')}"}), 500
-        site = next((site for site, paths in BROWSE_PATHS.items() if "api/" + key.replace("_", "-") in paths), "")
+        site = next(
+            (
+                site
+                for site, paths in BROWSE_PATHS.items()
+                if "api/" + key.replace("_", "-") in paths
+            ),
+            "",
+        )
+        results = video_library.group_results(site, results)
         typed = [
-            {**item, "source": site, "media_type": media_type(site, item)} for item in results
+            {**item, "source": site, "media_type": media_type(site, item)}
+            for item in results
         ]
         return jsonify(
             {

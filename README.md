@@ -114,6 +114,24 @@ Administrators can import or edit a theme under **Settings → Appearance**. The
 
 ## Optional integrations
 
+### Jellyfin connector
+
+Use AniWorld Requests **1.5.0 or newer** with H0melab Downloader **2.3.0 or newer**. Create a full-access API key, then configure the connection in the Jellyfin plugin. Assign the central movie and show destinations to the corresponding Jellyfin libraries in the plugin settings; it verifies that the selected paths share the same storage even when container paths differ.
+
+### Movie/show destinations and grouped series
+
+In **Settings → Custom Paths → Movie and show destinations**, select two existing, separate mounts. The detected content type then takes priority over site defaults for both native downloads and connector requests. A show from a movie site goes to the show mount. Conflicting manual paths, unavailable mounts and changed queued destinations are reported rather than silently redirected. Without this setup, existing source defaults remain in use.
+
+FilmPalast/Filmo episode pages such as `SiloS01E01` and `SiloS02E01` appear under one source-specific **Silo** card. Open it to verify the current seasons and episodes. A source failure or incomplete page list is not presented as a complete show. Different providers and remakes remain separate; alternative hosters for the same episode do not become duplicate episode downloads.
+
+Videos are written under `Show/Season 01/Show - S01E01 - german-dub.mkv` or a movie's own folder. Verified years are included when known. Variants remain separate filenames, without an extra language-level library folder. Point Jellyfin/Plex movie and show libraries at the corresponding roots. No Plex account connection is required for this layout.
+
+A show request keeps its episodes together in the queue, with resumable 500-entry work sections up to 20,000 entries. Existing media is never automatically moved. Review misplaced files and destination conflicts separately, and rescan both libraries after an explicitly reviewed move. Finish or cancel new queue entries before downgrading.
+
+Connector requests use the actual film/show type rather than a source's default destination. Language and provider options are checked per episode; partial language availability requires an explicit selection. Connector language variants use separate filenames and do not remux another request's existing file.
+
+Completed connector files have persistent receipts, so Jellyfin users can remove only their own newly created files. Requesting an existing file does not transfer ownership, and clearing the queue does not remove receipts. Older/manual downloads remain administrator-managed. Keep the downloader database and the connector's persistent data when upgrading.
+
 OIDC SSO, the Discord request bot, API keys, custom output paths, and custom themes are optional. Enable only the integrations used by your deployment and keep all associated secrets in the persistent settings volume.
 
 ## API

@@ -108,6 +108,9 @@ def _prepare_resolution_naming(self):
     if not _naming_template_uses_resolution():
         return
     _set_naming_resolution(self, "unknown")
+    if getattr(self, "_connector_variant", None):
+        # Connector variants never adopt or remux a pre-existing resolution file.
+        return
     if self._episode_path.exists():
         return
 
@@ -128,6 +131,26 @@ def _finalize_resolution_naming(self):
     if not _naming_template_uses_resolution():
         return
     old_path = self._episode_path
+    if getattr(self, "_connector_variant", None):
+        from ...web import connector_files
+
+        self._connector_output = None
+        _set_naming_resolution(self, _read_container_resolution(old_path))
+        new_path = self._episode_path
+        self._connector_output = old_path
+        if new_path != old_path:
+            connector_files.checked_path(self._connector_root, new_path)
+            with connector_files.file_operation(new_path):
+                if new_path.exists():
+                    _set_naming_resolution(self, "unknown")
+                    return  # Never replace a different request's existing file.
+                new_path.parent.mkdir(parents=True, exist_ok=True)
+                os.link(
+                    old_path, new_path
+                )  # Atomic create-if-absent on the same filesystem.
+                old_path.unlink()
+        self._connector_output = new_path
+        return
     _set_naming_resolution(self, _read_container_resolution(old_path))
     new_path = self._episode_path
     if new_path != old_path:
@@ -893,7 +916,9 @@ def _embed_requested_subtitle(owner, episode_path, label="", progress_start=95.0
         )
         verified = check_downloaded(output_path)
         if not _has_requested_subtitle(verified, wanted):
-            raise RuntimeError("Remuxed file does not contain the requested subtitle track")
+            raise RuntimeError(
+                "Remuxed file does not contain the requested subtitle track"
+            )
         os.replace(output_path, episode_path)
     finally:
         subtitle_path.unlink(missing_ok=True)
@@ -1501,7 +1526,9 @@ def _download_full_stream(
         while cause is not None:
             if isinstance(cause, DownloadPaused) or "Download paused" in str(cause):
                 raise DownloadPaused("Download paused") from exc
-            if isinstance(cause, DownloadCancelled) or "Download cancelled" in str(cause):
+            if isinstance(cause, DownloadCancelled) or "Download cancelled" in str(
+                cause
+            ):
                 temp_full.unlink(missing_ok=True)
                 temp_full.with_name(temp_full.name + ".part").unlink(missing_ok=True)
                 temp_full.with_name(temp_full.name + ".ytdl").unlink(missing_ok=True)

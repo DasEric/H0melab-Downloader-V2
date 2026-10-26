@@ -124,6 +124,7 @@
         : null,
       provider,
       ACTIVE.includes(item.status) ? counter : null,
+      item.total_episodes > 500 ? t("queue.work_sections", "{count} resumable work sections", { count: Math.ceil(item.total_episodes / 500) }) : null,
       durationLabel(item)
     ]
       .filter(Boolean)

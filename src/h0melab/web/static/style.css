@@ -3153,6 +3153,23 @@ details.advanced summary:hover {
   overflow-wrap: anywhere;
 }
 
+.inline-form.media-target-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.media-target-form label {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 6px;
+}
+.media-target-form select { width: 100%; min-width: 0; max-width: 100%; }
+.media-target-form button { grid-column: 1 / -1; justify-self: start; }
+@media (max-width: 640px) {
+  .inline-form.media-target-form { grid-template-columns: minmax(0, 1fr); }
+}
+
 @media (max-width: 620px) {
   .catalog-cover-frame {
     width: 120px;

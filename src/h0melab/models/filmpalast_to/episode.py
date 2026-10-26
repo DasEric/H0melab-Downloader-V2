@@ -296,6 +296,12 @@ class FilmPalastEpisode:
         return self.title_de or ""
 
     @property
+    def is_movie(self):
+        from ...web.video_library import parse_title
+
+        return parse_title(self.title) is None
+
+    @property
     def title_cleaned(self):
         return clean_title(self.title_de or "")
 
@@ -379,11 +385,17 @@ class FilmPalastEpisode:
 
     @property
     def _episode_path(self):
+        from ...web.connector_files import routed_episode_path
+
+        if (routed := routed_episode_path(self)) is not None:
+            return routed
         if self.__episode_path is None:
             self.__episode_path = (
                 self._folder_path / f"{self._file_name}.{self._file_extension}"
             )
-        return self.__episode_path
+        from ...web.connector_files import episode_path
+
+        return episode_path(self, self.__episode_path)
 
     # END
 

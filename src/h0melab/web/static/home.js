@@ -227,8 +227,9 @@
         const badge = isDownloaded(title)
           ? '<span class="downloaded-badge">&#10003;</span>'
           : "";
-        const subtitle = item.genre
-          ? `<div class="subtitle">${esc(item.genre)}</div>`
+        const subtitle = item.grouped_series
+          ? `<div class="subtitle">${esc(t("index.grouped_show", "Series — seasons and episodes inside"))}</div>`
+          : item.genre ? `<div class="subtitle">${esc(item.genre)}</div>`
           : "";
         return `
           <div class="poster-card" data-url="${esc(item.url)}">
@@ -413,6 +414,9 @@
       const data = await apiFetch("/api/custom-paths");
       if (token !== openToken) return;
       customPaths = data.paths || [];
+      const targets = await apiFetch("/api/media-targets");
+      if (token !== openToken) return;
+      customPathSelect.dataset.mediaTargets = JSON.stringify(targets);
     } catch (e) {
       if (token !== openToken) return;
       customPaths = [];
@@ -580,6 +584,14 @@
 
       await customPathsPromise;
       if (token !== openToken) return;
+      const targets = JSON.parse(customPathSelect.dataset.mediaTargets || "{}");
+      if (targets.enabled && !manga) {
+        const kinds = new Set(seasons.map((season) => season.are_movies));
+        const kind = kinds.size === 1 ? (kinds.has(true) ? "movie" : "series") : "mixed";
+        customPathSelect.value = targets[kind] ? String(targets[kind]) : "";
+        customPathSelect.disabled = true;
+        customPathSelect.title = t("settings.media_destinations_hint", "Movie/show destinations are configured in Settings. Mixed titles are routed per episode.");
+      } else { customPathSelect.disabled = false; }
       await refreshAutosyncState();
       if (token !== openToken) return;
       showSkeleton(false);
@@ -927,6 +939,7 @@
       );
       return;
     }
+    if (episodes.length > 500 && !window.confirm(t("index.large_show", "Queue {count} episodes as one request in {sections} resumable work sections?", { count: episodes.length, sections: Math.ceil(episodes.length / 500) }))) return;
 
     const hanime = isHanime(seriesUrl);
     const manga = isMangaFire(seriesUrl);

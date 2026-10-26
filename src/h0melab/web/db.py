@@ -327,7 +327,9 @@ def init_db():
                 if column not in existing:
                     conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {spec}")
         conn.execute("UPDATE download_queue SET position = id WHERE position = 0")
-        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_request_key ON download_queue(request_key) WHERE request_key IS NOT NULL")
+        conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_queue_request_key ON download_queue(request_key) WHERE request_key IS NOT NULL"
+        )
         # v5 stored movie-only watchlist rows in upcoming_movies. Copying with
         # the original id keeps every existing bookmark and queue relation.
         migrated = conn.execute(
@@ -549,14 +551,28 @@ def add_to_queue(
     transfer_kind="stream",
     payload_version=1,
     request_key=None,
+    active_request_key=False,
 ):
     with session() as conn:
         # BEGIN IMMEDIATE serializes the lookup and insert across worker processes.
         if request_key:
             conn.execute("BEGIN IMMEDIATE")
-            existing = conn.execute("SELECT id FROM download_queue WHERE request_key = ?", (request_key,)).fetchone()
+            existing = conn.execute(
+                "SELECT id,status FROM download_queue WHERE request_key = ?",
+                (request_key,),
+            ).fetchone()
             if existing:
-                return existing["id"]
+                if active_request_key and existing["status"] in (
+                    "completed",
+                    "failed",
+                    "cancelled",
+                ):
+                    conn.execute(
+                        "UPDATE download_queue SET request_key=NULL WHERE id=?",
+                        (existing["id"],),
+                    )
+                else:
+                    return existing["id"]
         cur = conn.execute(
             "INSERT INTO download_queue "
             "(title, series_url, episodes, total_episodes, language, subtitle_language, provider, username, "
@@ -596,23 +612,46 @@ def list_upcoming_movies():
 
 def get_upcoming_movie(movie_id):
     with session() as conn:
-        row = conn.execute("SELECT * FROM upcoming_media WHERE id = ?", (movie_id,)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM upcoming_media WHERE id = ?", (movie_id,)
+        ).fetchone()
         return dict(row) if row else None
 
 
-def add_upcoming_movie(movie, language="German Dub", provider="VOE", custom_path_id=None):
+def add_upcoming_movie(
+    movie, language="German Dub", provider="VOE", custom_path_id=None
+):
     with session() as conn:
         cur = conn.execute(
             "INSERT INTO upcoming_media (media_type,tmdb_id,title,original_title,release_date,release_year,poster_path,overview,language,provider,custom_path_id) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            (movie.get("media_type", "movie"), movie["tmdb_id"], movie["title"], movie.get("original_title", ""),
-             movie["release_date"], movie["release_year"], movie.get("poster_path"),
-             movie.get("overview", ""), language, provider, custom_path_id),
+            (
+                movie.get("media_type", "movie"),
+                movie["tmdb_id"],
+                movie["title"],
+                movie.get("original_title", ""),
+                movie["release_date"],
+                movie["release_year"],
+                movie.get("poster_path"),
+                movie.get("overview", ""),
+                language,
+                provider,
+                custom_path_id,
+            ),
         )
         return cur.lastrowid
 
 
 def update_upcoming_movie(movie_id, **fields):
-    allowed = {"status", "matched_url", "queue_id", "last_checked_at", "last_message", "language", "provider", "custom_path_id"}
+    allowed = {
+        "status",
+        "matched_url",
+        "queue_id",
+        "last_checked_at",
+        "last_message",
+        "language",
+        "provider",
+        "custom_path_id",
+    }
     values = {key: value for key, value in fields.items() if key in allowed}
     if not values:
         return
@@ -630,21 +669,30 @@ def delete_upcoming_movie(movie_id):
 
 def upcoming_state_get(key):
     with session() as conn:
-        row = conn.execute("SELECT value FROM upcoming_state WHERE key = ?", (key,)).fetchone()
+        row = conn.execute(
+            "SELECT value FROM upcoming_state WHERE key = ?", (key,)
+        ).fetchone()
         return row[0] if row else None
 
 
 def upcoming_state_set(key, value):
     with session() as conn:
-        conn.execute("INSERT INTO upcoming_state(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, value))
+        conn.execute(
+            "INSERT INTO upcoming_state(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+            (key, value),
+        )
 
 
 def finish_upcoming_queue(queue_id, queue_status):
     status = "downloaded" if queue_status == "completed" else "error"
-    message = "Download completed" if status == "downloaded" else "Queued download failed"
+    message = (
+        "Download completed" if status == "downloaded" else "Queued download failed"
+    )
     with session() as conn:
-        conn.execute("UPDATE upcoming_media SET status = ?, last_message = ? WHERE queue_id = ?",
-                     (status, message, queue_id))
+        conn.execute(
+            "UPDATE upcoming_media SET status = ?, last_message = ? WHERE queue_id = ?",
+            (status, message, queue_id),
+        )
 
 
 # How long the item has been downloading, NULL until it starts. Both timestamps

@@ -1,7 +1,7 @@
-"""Read-only source metadata for API clients; no native UI/search filtering.
+"""Source metadata and concrete content identity for API clients.
 
-Concrete media types describe sources/results. Search grouping and relevance
-policy belong exclusively to the Jellyfin connector.
+The downloader resolves episode families; relevance/category filtering remains
+a connector policy rather than a native search filter.
 """
 
 SITE_TYPES = {
@@ -12,8 +12,8 @@ SITE_TYPES = {
     "htv": ("series",),
     "kinox": ("movie", "series"),
     "burningseries": ("series",),
-    "filmpalast": ("movie",),
-    "filmo": ("movie",),
+    "filmpalast": ("movie", "series"),
+    "filmo": ("movie", "series"),
     "cineby": ("movie", "series"),
     "moflix": ("movie", "series"),
 }
@@ -32,8 +32,14 @@ BROWSE_PATHS = {
     "moflix": ("api/moflix-movies",),
 }
 
+
 def media_type(site, item):
     """Only return a type backed by metadata or an unambiguous source/URL."""
+    if site in ("filmpalast", "filmo"):
+        from .video_library import parse_title
+
+        if parse_title(item.get("title") or item.get("name")):
+            return "series"
     value = item.get("media_type") or item.get("media_kind") or item.get("type")
     if not isinstance(value, str):
         value = ""
@@ -53,6 +59,8 @@ def media_type(site, item):
         if "/movie/" in url:
             return "movie"
     types = SITE_TYPES.get(site, ())
+    if site in ("filmpalast", "filmo"):
+        return "movie"
     return types[0] if len(types) == 1 else ""
 
 

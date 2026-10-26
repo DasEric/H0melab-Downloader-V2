@@ -74,7 +74,11 @@ class _MoviePage(HTMLParser):
 class FilmoEpisode:
     """A Filmo movie with lazy metadata and language-specific hoster resolution."""
 
-    is_movie = True
+    @property
+    def is_movie(self):
+        from ...web.video_library import parse_title
+
+        return parse_title(self.title) is None
 
     def __init__(
         self,
@@ -316,7 +320,15 @@ class FilmoEpisode:
 
     @property
     def _episode_path(self):
-        return self._folder_path / f"{self._file_name}.{self._file_extension}"
+        from ...web.connector_files import routed_episode_path
+
+        if (routed := routed_episode_path(self)) is not None:
+            return routed
+        from ...web.connector_files import episode_path
+
+        return episode_path(
+            self, self._folder_path / f"{self._file_name}.{self._file_extension}"
+        )
 
     @property
     def is_downloaded(self):

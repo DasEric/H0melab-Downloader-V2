@@ -356,7 +356,9 @@ class SerienstreamEpisode:
             if media_key in provider_functions:
                 asset = provider_functions[media_key](self.provider_url)
             else:
-                asset = MediaAsset(provider_functions[direct_key](self.provider_url), ())
+                asset = MediaAsset(
+                    provider_functions[direct_key](self.provider_url), ()
+                )
         except KeyError:
             raise ValueError(
                 f"The provider '{self.selected_provider}' is not yet implemented."
@@ -465,11 +467,17 @@ class SerienstreamEpisode:
 
     @property
     def _episode_path(self):
+        from ...web.connector_files import routed_episode_path
+
+        if (routed := routed_episode_path(self)) is not None:
+            return routed
         if self.__episode_path is None:
             self.__episode_path = (
                 self._folder_path / f"{self._file_name}.{self._file_extension}"
             )
-        return self.__episode_path
+        from ...web.connector_files import episode_path
+
+        return episode_path(self, self.__episode_path)
 
     # END
 

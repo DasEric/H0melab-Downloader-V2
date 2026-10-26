@@ -50,10 +50,18 @@ def _resolve_base(custom_path_id, lang_folder):
 def list_locations():
     """Browsable roots, one entry per (download path x language folder)."""
     separated = paths.lang_separation_enabled()
+    from . import media_targets
+
+    destinations = media_targets.read()
+    typed = (
+        {destinations.get("movie"), destinations.get("series")}
+        if destinations["enabled"]
+        else set()
+    )
     locations = []
 
     for label, path_id, root in paths.download_roots():
-        if not separated:
+        if not separated or path_id in typed:
             locations.append(
                 {
                     "label": label,
@@ -63,7 +71,8 @@ def list_locations():
                     "exists": root.is_dir(),
                 }
             )
-            continue
+            if not separated:
+                continue
 
         for folder in paths.ALL_LANG_FOLDERS:
             base = root / folder

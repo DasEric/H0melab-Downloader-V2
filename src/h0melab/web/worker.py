@@ -10,7 +10,7 @@ import time
 
 from ..logger import get_logger
 from ..providers import resolve_provider
-from . import db, paths, settings_store
+from . import db, media_targets, paths, settings_store, video_library
 from .media import mangafire_format
 
 logger = get_logger(__name__)
@@ -83,6 +83,7 @@ def _episode_request(entry):
 
 
 def _build_episode(url, extra, item, selected_path):
+    url = video_library.variant_url(url, item["language"], item["provider"])
     provider = resolve_provider(url)
     kwargs = {
         "url": url,
@@ -138,7 +139,7 @@ def _process(item):
     errors = []
 
     start_index = max(0, min(int(item.get("current_episode") or 0), len(entries)))
-    for index, entry in enumerate(entries[start_index:], start=start_index):
+    for index, entry in _queued_entries(entries, start_index):
         url, extra = _episode_request(entry)
         provider = None
         try:
@@ -146,16 +147,140 @@ def _process(item):
                 db.finish_pause(queue_id)
                 return
             db.update_queue_progress(queue_id, index, url)
-            provider, episode = _build_episode(url, extra, item, selected_path)
+            entry_options = dict(item)
+            connector_entry = (
+                isinstance(entry, dict)
+                and entry.get("connector_protocol") == 1
+                and item.get("payload_version") in (2, 3)
+                and item.get("request_key")
+            )
+            entry_path = selected_path
+            if connector_entry:
+                from . import connector_files
+
+                entry_options.update(
+                    {
+                        key: entry[key]
+                        for key in (
+                            "language",
+                            "provider",
+                            "media_type",
+                            "custom_path_id",
+                        )
+                        if key in entry
+                    }
+                )
+                root = connector_files.root_for(entry_options.get("custom_path_id"))
+                if str(root) != entry.get("target_root"):
+                    raise ValueError("Configured connector target has changed")
+                entry_path = str(root)
+            provider, episode = _build_episode(url, extra, entry_options, entry_path)
+            if media_targets.read()["enabled"] and provider.name != "MangaFire":
+                stored = (
+                    entry.get("_media_identity")
+                    if isinstance(entry, dict) and item.get("payload_version") == 3
+                    else None
+                )
+                identity = (
+                    stored
+                    or video_library.observed(url)
+                    or video_library.identity_for_episode(episode, url)
+                )
+                if identity is None:
+                    raise ValueError(
+                        "Verify this old download's movie/show identity before retrying"
+                    )
+                fresh = video_library.identity_for_episode(episode, url)
+                if fresh and any(
+                    fresh.get(key) != identity.get(key)
+                    for key in ("media_type", "season", "episode")
+                ):
+                    raise ValueError(
+                        "Source identity changed since this title was queued"
+                    )
+                selected = (
+                    entry.get("custom_path_id")
+                    if isinstance(entry, dict)
+                    else item.get("custom_path_id")
+                )
+                _target, video_root, _ = media_targets.resolve(
+                    identity["media_type"],
+                    selected,
+                    entry.get("target_root") if isinstance(entry, dict) else None,
+                    entry.get("_media_revision") if isinstance(entry, dict) else None,
+                )
+                episode.selected_path = str(video_root)
+                episode._video_identity = identity
+                episode._video_root = video_root
+                episode._connector_variant = entry_options["language"]
+                episode._connector_root = video_root
+                entry_options["media_type"] = identity["media_type"]
+                if connector_entry:
+                    root = video_root
+            elif (group := video_library.by_url(url)) is not None:
+                episode._video_identity = {
+                    **group,
+                    "media_type": "series",
+                    "end": group["end_episode"],
+                }
+                episode._video_root = entry_path or paths.base_for(
+                    item.get("custom_path_id")
+                )
             from ..models.common.common import (
                 clear_episode_download_context,
                 set_episode_download_context,
             )
-            set_episode_download_context(queue_id, index, settings_store.hls_concurrency())
+
+            set_episode_download_context(
+                queue_id, index, settings_store.hls_concurrency()
+            )
             # Tells the captcha module to stream its browser into this queue item
             captcha._local.queue_id = queue_id
             try:
-                episode.download()
+                if connector_entry:
+                    episode._connector_variant = entry_options["language"]
+                    episode._connector_root = root
+                    output = connector_files.checked_path(root, episode._episode_path)
+                    if getattr(episode, "_video_identity", None):
+                        video_library.reserve_output(output, episode._video_identity)
+                    with connector_files.file_operation(output):
+                        existed = output.exists()
+                        # Never remux or overwrite another request's existing file.
+                        if not existed:
+                            output.parent.mkdir(parents=True, exist_ok=True)
+                            episode.download()
+                        connector_files.record(
+                            item,
+                            index,
+                            episode._episode_path,
+                            root,
+                            existed,
+                            entry_options,
+                        )
+                        if (
+                            connector_files.audio_matches(
+                                connector_files.media_streams(episode._episode_path),
+                                entry_options["language"],
+                            )
+                            is False
+                        ):
+                            raise ValueError(
+                                "Downloaded audio does not match the requested language"
+                            )
+                else:
+                    if getattr(episode, "_video_identity", None):
+                        from . import connector_files
+
+                        output = connector_files.checked_path(
+                            episode._video_root, episode._episode_path
+                        )
+                        video_library.reserve_output(output, episode._video_identity)
+                        with connector_files.file_operation(output):
+                            if not output.exists():
+                                output.parent.mkdir(parents=True, exist_ok=True)
+                                episode.download()
+                    else:
+                        episode.download()
             finally:
                 captcha._local.queue_id = None
                 clear_episode_download_context()
@@ -201,7 +326,9 @@ def _process(item):
                 queue_id, "completed" if everything_done else "cancelled"
             )
             if item.get("source") == "upcoming":
-                db.finish_upcoming_queue(queue_id, "completed" if everything_done else "cancelled")
+                db.finish_upcoming_queue(
+                    queue_id, "completed" if everything_done else "cancelled"
+                )
             if everything_done and item.get("source") == "discord":
                 _notify_discord(item)
             return
@@ -217,6 +344,12 @@ def _process(item):
         _notify_discord(item)
 
 
+def _queued_entries(entries, start):
+    """One logical request, resumable bounded work sections of 500 entries."""
+    for offset in range(start, len(entries), 500):
+        yield from enumerate(entries[offset : offset + 500], start=offset)
+
+
 def _process_catalog(item, entries):
     """Process book/audio assets without passing them to video providers."""
     from ..catalog.download import download_entry
@@ -225,7 +358,9 @@ def _process_catalog(item, entries):
     errors = []
     start_index = max(0, min(int(item.get("current_episode") or 0), len(entries)))
     for index, entry in enumerate(entries[start_index:], start=start_index):
-        label = entry.get("asset", {}).get("label") or entry.get("asset", {}).get("url", "")
+        label = entry.get("asset", {}).get("label") or entry.get("asset", {}).get(
+            "url", ""
+        )
         try:
             if db.queue_control_flags(queue_id)[2]:
                 db.finish_pause(queue_id)

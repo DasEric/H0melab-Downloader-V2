@@ -4,7 +4,7 @@ import os
 import random
 import re
 from html.parser import HTMLParser
-from urllib.parse import quote, quote_plus, unquote, urljoin
+from urllib.parse import quote, quote_plus, unquote, urljoin, urlparse
 
 import niquests
 
@@ -1012,7 +1012,53 @@ def fetch_filmpalast_genres():
     return results
 
 
-def query_filmpalast(keyword="", *, genre=None, limit=None):
+class CompleteSearchResults(list):
+    def __init__(self, values=(), *, complete=False):
+        super().__init__(values)
+        self.complete = complete
+
+
+class _NextPage(HTMLParser):
+    def __init__(self, page):
+        super().__init__()
+        self.next_url = None
+        self.feed(page)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "a" and (
+            "next" in attrs.get("rel", "").split()
+            or "next" in attrs.get("class", "").split()
+        ):
+            self.next_url = attrs.get("href")
+
+
+def _complete_flat_search(base, url, parse):
+    results, seen, visited = [], set(), set()
+    for _ in range(100):
+        if url in visited or urlparse(url).netloc != urlparse(base).netloc:
+            return CompleteSearchResults(results, complete=False)
+        visited.add(url)
+        response = GLOBAL_SESSION.get(
+            url,
+            headers={"Accept-Encoding": "gzip, deflate", "Referer": base + "/"},
+            timeout=15,
+        )
+        response.raise_for_status()
+        for item in parse(response.text):
+            if item["url"] not in seen:
+                seen.add(item["url"])
+                results.append(item)
+        if len(results) > 20_000:
+            return CompleteSearchResults(results, complete=False)
+        next_url = _NextPage(response.text).next_url
+        if not next_url:
+            return CompleteSearchResults(results, complete=True)
+        url = urljoin(url, html_module.unescape(next_url))
+    return CompleteSearchResults(results, complete=False)
+
+
+def query_filmpalast(keyword="", *, genre=None, limit=None, complete=False):
     """Search by title, or fetch the first result page for a genre slug.
 
     Use fetch_filmpalast_genres() to discover the site's current genres.
@@ -1023,6 +1069,30 @@ def query_filmpalast(keyword="", *, genre=None, limit=None):
     base = "https://filmpalast.to"
     if genre and keyword:
         raise ValueError("Use either a keyword or a genre, not both.")
+
+    def _parse(page):
+        results = []
+        for block in page.split('<article class="liste')[1:]:
+            h2 = re.search(r"<h2[^>]*>(.*?)</h2>", block, re.DOTALL | re.IGNORECASE)
+            if not h2:
+                continue
+            href = re.search(r'href="([^"]+)"', h2[1], re.IGNORECASE)
+            label = re.search(r'title="([^"]+)"', h2[1], re.IGNORECASE)
+            if href:
+                title = label[1] if label else re.sub(r"<[^>]+>", "", h2[1])
+                results.append(
+                    {
+                        "title": html_module.unescape(title).strip(),
+                        "url": urljoin(base, href[1]),
+                        "poster_url": "",
+                    }
+                )
+        return results
+
+    if complete:
+        return _complete_flat_search(
+            base, f"{base}/search/title/{quote(keyword, safe='')}", _parse
+        )
 
     def _run(term):
         kind = "genre" if genre else "title"
@@ -1092,7 +1162,7 @@ def query_filmpalast(keyword="", *, genre=None, limit=None):
                     "poster_url": poster,
                 }
             )
-        return limit_results(results if genre else results[:30], limit)
+        return limit_results(results, limit)
 
     results = _run(genre or keyword)
     if not results and not genre:
@@ -1112,6 +1182,7 @@ def query_filmo(
     country=None,
     sort=None,
     limit=None,
+    complete=False,
 ):
     """Search by keyword, or browse movies with optional site filters.
 
@@ -1123,6 +1194,12 @@ def query_filmo(
     if limit == 0:
         return []
     base = "https://filmo.to"
+    if complete:
+        return _complete_flat_search(
+            base,
+            f"{base}/search?q={quote_plus(keyword)}",
+            lambda page: _parse_filmo_cards(page, base),
+        )
     filters = optional_filters(
         genre_id=genre_id,
         year=year,
@@ -1159,7 +1236,7 @@ def query_filmo(
                 seen.add(result["url"])
                 results.append(result)
         if keyword:
-            return limit_results(results[:30], limit)
+            return limit_results(results, limit)
         next_link = re.search(
             r"<a\b(?=[^>]*\brel=[\"']next[\"'])[^>]*\bhref=[\"']([^\"']+)",
             resp.text,
@@ -1425,7 +1502,9 @@ def _cineby_result(item):
         "url": url,
         "poster_url": f"{TMDB_IMG}{poster}" if poster else "",
         "genre": "",
-        "media_type": "series" if media == "tv" or (media is None and item.get("name")) else "movie",
+        "media_type": "series"
+        if media == "tv" or (media is None and item.get("name"))
+        else "movie",
         "year": year,
         "tmdb_id": tmdb_id,
         "original_title": item.get("original_title") or item.get("original_name") or "",

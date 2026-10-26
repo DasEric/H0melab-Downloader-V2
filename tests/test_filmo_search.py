@@ -65,9 +65,11 @@ def test_empty_filters_use_site_defaults(monkeypatch):
     assert calls[0][1]["params"] == {}
 
 
-def test_keyword_search_preserves_limit(monkeypatch):
+def test_keyword_search_uses_explicit_limits_without_hiding_episode_candidates(
+    monkeypatch,
+):
     calls = mock_pages(monkeypatch, cards(*(f"movie-{n}" for n in range(40))))
-    assert len(search.query_filmo("resident evil")) == 30
+    assert len(search.query_filmo("resident evil")) == 40
     assert calls[0][0] == "https://filmo.to/search?q=resident+evil"
 
 

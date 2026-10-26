@@ -69,7 +69,17 @@ def scan_bases():
     """
     bases = []
     separated = lang_separation_enabled()
-    for _, _, root in download_roots():
+    from . import media_targets
+
+    destinations = media_targets.read()
+    typed = (
+        {destinations.get("movie"), destinations.get("series")}
+        if destinations["enabled"]
+        else set()
+    )
+    for _, path_id, root in download_roots():
+        if separated and path_id in typed:
+            bases.append(root)
         if separated:
             bases.extend(root / folder for folder in ALL_LANG_FOLDERS)
         else:
