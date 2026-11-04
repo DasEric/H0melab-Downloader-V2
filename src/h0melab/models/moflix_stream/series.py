@@ -485,10 +485,30 @@ class MoflixEpisode:
 
     @property
     def is_series(self):
-        return (
+        return bool(
             self._title_data.get("is_series", False)
             or self._title_data.get("type") == "series"
         )
+
+    @property
+    def is_movie(self):
+        return not self.is_series
+
+    @property
+    def video_identity(self):
+        """Use title metadata before the UI's movie-as-episode placeholders."""
+        identity = {
+            "media_type": "series" if self.is_series else "movie",
+            "title": self.title,
+            "year": str(self.release_year or ""),
+        }
+        if self.is_series:
+            identity.update(
+                season=self.season_number,
+                episode=self.episode_number,
+                end=self.episode_number,
+            )
+        return identity
 
     @property
     def seasons(self):

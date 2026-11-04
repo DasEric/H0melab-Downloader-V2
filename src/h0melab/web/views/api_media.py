@@ -564,18 +564,18 @@ def _season_episodes(provider, url, series_url):
             and isinstance(getattr(season, "season_number", None), int)
             and provider.name != "MangaFire"
         ):
-            kind = "movie" if getattr(season, "are_movies", False) else "series"
-            video_library.remember(
-                episode.url,
-                {
+            identity = getattr(episode, "video_identity", None)
+            if not isinstance(identity, dict):
+                kind = "movie" if getattr(season, "are_movies", False) else "series"
+                identity = {
                     "media_type": kind,
                     "title": found.title,
                     "year": str(getattr(found, "release_year", "") or ""),
                     "season": season.season_number,
                     "episode": episode.episode_number,
                     "end": episode.episode_number,
-                },
-            )
+                }
+            video_library.remember(episode.url, identity)
         if season_languages is not None:
             languages = season_languages
         elif provider.name == "SerienStream":

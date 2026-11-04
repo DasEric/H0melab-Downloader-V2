@@ -394,11 +394,13 @@ def observed(url):
 
 def inspect(url, language="German Dub"):
     cached = observed(url)
-    if cached:
-        return cached
     from .views import api_media
 
     provider = api_media.resolve_provider(url)
+    # Older Moflix observations may have classified movie wrappers as S01E01.
+    # Refresh on submission; the worker still checks the queued snapshot later.
+    if cached and provider.name != "Moflix":
+        return cached
     episode = provider.episode_cls(url=url, selected_language=language)
     source = {"FilmPalast": "filmpalast", "Filmo": "filmo"}.get(provider.name)
     if source and parse_title(getattr(episode, "title", "")):

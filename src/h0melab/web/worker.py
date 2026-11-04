@@ -191,13 +191,25 @@ def _process(item):
                         "Verify this old download's movie/show identity before retrying"
                     )
                 fresh = video_library.identity_for_episode(episode, url)
+                # Legacy movie wrappers carried dummy season/episode numbers.
+                # Those are not part of a film's identity; its type still is.
+                identity_fields = ("media_type",)
+                if identity["media_type"] == "series":
+                    identity_fields += ("season", "episode")
                 if fresh and any(
-                    fresh.get(key) != identity.get(key)
-                    for key in ("media_type", "season", "episode")
+                    fresh.get(key) != identity.get(key) for key in identity_fields
                 ):
                     raise ValueError(
                         "Source identity changed since this title was queued"
                     )
+                if provider.name == "Moflix" and identity["media_type"] == "movie":
+                    # A legacy retry must reserve the same output as a new job,
+                    # without changing its queued title/year or destination.
+                    identity = {
+                        key: value
+                        for key, value in identity.items()
+                        if key not in ("season", "episode", "end")
+                    }
                 selected = (
                     entry.get("custom_path_id")
                     if isinstance(entry, dict)
