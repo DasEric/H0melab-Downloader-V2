@@ -429,25 +429,33 @@ def output_path(root, identity):
     return Path(root) / name / f"Season {season:02d}" / f"{name} - {number}.mkv"
 
 
+def _output_identity(identity):
+    """Keep content identity stable across display metadata and legacy defaults."""
+    result = {field: identity.get(field) for field in ("media_type", "title", "id")}
+    year = str(identity.get("year") or "").strip()
+    if result["media_type"] == "series":
+        # AniWorld exposes a run range, whose end may change for an ongoing show.
+        # Keep the premiere year so same-named remakes still remain distinct.
+        years = re.fullmatch(r"((?:19|20)\d{2})\s*[-\u2013]\s*((?:19|20)\d{2})", year)
+        if years and years[1] <= years[2]:
+            year = years[1]
+        episode = identity.get("episode")
+        end = identity.get("end")
+        result.update(
+            season=identity.get("season"),
+            episode=episode,
+            end=episode if end is None else end,
+        )
+    result["year"] = year
+    return result
+
+
 def reserve_output(path, identity):
     import os
 
     name = os.path.normcase(str(Path(path).absolute()))
-    key = json.dumps(
-        {
-            field: identity.get(field)
-            for field in (
-                "media_type",
-                "title",
-                "year",
-                "season",
-                "episode",
-                "end",
-                "id",
-            )
-        },
-        sort_keys=True,
-    )
+    normalized = _output_identity(identity)
+    key = json.dumps(normalized, sort_keys=True)
     with db.session() as conn:
         conn.execute(
             "CREATE TABLE IF NOT EXISTS video_outputs(path TEXT PRIMARY KEY, identity TEXT NOT NULL)"
@@ -456,8 +464,18 @@ def reserve_output(path, identity):
         existing = conn.execute(
             "SELECT identity FROM video_outputs WHERE path=?", (name,)
         ).fetchone()
-        if existing and existing[0] != key:
-            raise ValueError(
-                "Two different titles map to the same filename; review this media identity"
-            )
-        conn.execute("INSERT OR IGNORE INTO video_outputs VALUES (?,?)", (name, key))
+        if existing:
+            try:
+                stored = json.loads(existing[0])
+            except (TypeError, ValueError):
+                stored = None
+            if not isinstance(stored, dict) or _output_identity(stored) != normalized:
+                raise ValueError(
+                    "Two different titles map to the same filename; review this media identity"
+                )
+        # Upgrade only this equivalent reservation, never clear the registry.
+        conn.execute(
+            "INSERT INTO video_outputs VALUES (?,?) "
+            "ON CONFLICT(path) DO UPDATE SET identity=excluded.identity",
+            (name, key),
+        )
