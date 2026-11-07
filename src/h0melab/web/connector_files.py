@@ -330,24 +330,52 @@ def delete(ids):
     return results
 
 
-def episode_path(episode, path):
-    """Freeze a separate variant filename without changing global templates."""
-    identity = getattr(episode, "_video_identity", None)
-    if identity:
-        from .video_library import output_path
-
-        path = output_path(episode._video_root, identity).with_suffix(Path(path).suffix)
-    variant = getattr(episode, "_connector_variant", None)
+def _variant_path(path, variant):
     if not variant:
         return path
-    frozen = getattr(episode, "_connector_output", None)
-    if frozen is None:
-        value = Path(path)
-        frozen = value.with_name(
-            f"{value.stem} - {paths.lang_folder_for(variant)}{value.suffix}"
+    return path.with_name(
+        f"{path.stem} - {paths.lang_folder_for(variant)}{path.suffix}"
+    )
+
+
+def _typed_video_path(root, identity, suffix, variant):
+    from .video_library import output_paths, output_reservation_matches
+
+    primary, legacy = output_paths(root, identity)
+    primary = _variant_path(primary.with_suffix(suffix), variant)
+    if legacy is not None and not primary.exists():
+        legacy = _variant_path(legacy.with_suffix(suffix), variant)
+        # An old filename alone is not proof: a same-named show can use it.
+        if legacy.is_file() and output_reservation_matches(legacy, identity) is True:
+            return legacy
+    return primary
+
+
+def typed_video_exists(root, identity, extension, variant):
+    from .video_library import output_reservation_matches
+
+    if not isinstance(extension, str) or not extension.isalnum() or len(extension) > 8:
+        return False
+    path = _typed_video_path(root, identity, "." + extension, variant)
+    return path.is_file() and output_reservation_matches(path, identity) is not False
+
+
+def episode_path(episode, path):
+    """Freeze a separate variant filename without changing global templates."""
+    variant = getattr(episode, "_connector_variant", None)
+    frozen = getattr(episode, "_connector_output", None) if variant else None
+    if frozen is not None:
+        return frozen
+    identity = getattr(episode, "_video_identity", None)
+    if identity:
+        path = _typed_video_path(
+            episode._video_root, identity, Path(path).suffix, variant
         )
-        episode._connector_output = frozen
-    return frozen
+    elif variant:
+        path = _variant_path(Path(path), variant)
+    if variant:
+        episode._connector_output = path
+    return path
 
 
 def routed_episode_path(episode):

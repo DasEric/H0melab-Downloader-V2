@@ -7,6 +7,7 @@ cache expiry, title refresh, result order changes and restarts.
 
 import hashlib
 import json
+import os
 import re
 import threading
 import time
@@ -19,6 +20,7 @@ from . import db
 
 FLAT_SOURCES = {"filmpalast", "filmo"}
 MAX_ITEMS = 20_000
+_YEAR = r"(?:19|20)\d{2}"
 _locks = [threading.Lock() for _ in range(64)]
 _EPISODE = re.compile(
     r"^(?P<title>.+?)[ ._-]*(?:s(?P<s>\d{1,3})[ ._-]*e(?P<e>\d{1,4})(?:[ ._-]*-?[ ._-]*e(?P<end>\d{1,4}))?|(?P<xs>\d{1,3})x(?P<xe>\d{1,4}))(?:\b|[ ._-]|$)",
@@ -414,12 +416,22 @@ def inspect(url, language="German Dub"):
     return result
 
 
+def _identity_year(identity):
+    year = str(identity.get("year") or "").strip()
+    if identity.get("media_type") == "series":
+        # A running show's end year changes, but its premiere does not.
+        years = re.fullmatch(rf"({_YEAR})\s*[-\u2013]\s*({_YEAR})", year)
+        if years and years[1] <= years[2]:
+            return years[1]
+    return year
+
+
 def output_path(root, identity):
     title = safe_component(identity["title"], "", max_length=100)
     if not title:
         raise ValueError("A verified title is required for the media path")
-    year = str(identity.get("year") or "")
-    name = f"{title} ({year})" if re.fullmatch(r"(?:19|20)\d{2}", year) else title
+    year = _identity_year(identity)
+    name = f"{title} ({year})" if re.fullmatch(_YEAR, year) else title
     if identity["media_type"] == "movie":
         return Path(root) / name / (name + ".mkv")
     season, episode = identity["season"], identity["episode"]
@@ -429,16 +441,20 @@ def output_path(root, identity):
     return Path(root) / name / f"Season {season:02d}" / f"{name} - {number}.mkv"
 
 
+def output_paths(root, identity):
+    """Return the current path and the optional pre-premiere series path."""
+    primary = output_path(root, identity)
+    if identity["media_type"] == "series" and re.fullmatch(
+        _YEAR, _identity_year(identity)
+    ):
+        return primary, output_path(root, {**identity, "year": ""})
+    return primary, None
+
+
 def _output_identity(identity):
     """Keep content identity stable across display metadata and legacy defaults."""
     result = {field: identity.get(field) for field in ("media_type", "title", "id")}
-    year = str(identity.get("year") or "").strip()
     if result["media_type"] == "series":
-        # AniWorld exposes a run range, whose end may change for an ongoing show.
-        # Keep the premiere year so same-named remakes still remain distinct.
-        years = re.fullmatch(r"((?:19|20)\d{2})\s*[-\u2013]\s*((?:19|20)\d{2})", year)
-        if years and years[1] <= years[2]:
-            year = years[1]
         episode = identity.get("episode")
         end = identity.get("end")
         result.update(
@@ -446,14 +462,41 @@ def _output_identity(identity):
             episode=episode,
             end=episode if end is None else end,
         )
-    result["year"] = year
+    result["year"] = _identity_year(identity)
     return result
 
 
-def reserve_output(path, identity):
-    import os
+def _output_key(path):
+    return os.path.normcase(str(Path(path).absolute()))
 
-    name = os.path.normcase(str(Path(path).absolute()))
+
+def _reservation_matches(raw, normalized):
+    try:
+        stored = json.loads(raw)
+    except (TypeError, ValueError):
+        return False
+    return isinstance(stored, dict) and _output_identity(stored) == normalized
+
+
+def output_reservation_matches(path, identity):
+    """True for the same identity, False for a conflict, None if unregistered."""
+    with db.session() as conn:
+        if not conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='video_outputs'"
+        ).fetchone():
+            return None
+        row = conn.execute(
+            "SELECT identity FROM video_outputs WHERE path=?", (_output_key(path),)
+        ).fetchone()
+    return (
+        None
+        if row is None
+        else _reservation_matches(row[0], _output_identity(identity))
+    )
+
+
+def reserve_output(path, identity):
+    name = _output_key(path)
     normalized = _output_identity(identity)
     key = json.dumps(normalized, sort_keys=True)
     with db.session() as conn:
@@ -464,15 +507,10 @@ def reserve_output(path, identity):
         existing = conn.execute(
             "SELECT identity FROM video_outputs WHERE path=?", (name,)
         ).fetchone()
-        if existing:
-            try:
-                stored = json.loads(existing[0])
-            except (TypeError, ValueError):
-                stored = None
-            if not isinstance(stored, dict) or _output_identity(stored) != normalized:
-                raise ValueError(
-                    "Two different titles map to the same filename; review this media identity"
-                )
+        if existing and not _reservation_matches(existing[0], normalized):
+            raise ValueError(
+                "Two different titles map to the same filename; review this media identity"
+            )
         # Upgrade only this equivalent reservation, never clear the registry.
         conn.execute(
             "INSERT INTO video_outputs VALUES (?,?) "

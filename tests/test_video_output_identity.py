@@ -225,10 +225,16 @@ def test_one_piece_requeues_old_year_range_without_losing_existing_files(
         episode = AniworldEpisode(url)
         identity = video_library.identity_for_episode(episode, url)
         assert identity["year"] == "1999-2025"
-        path = video_library.output_path(shows, identity)
-        path = path.with_name(path.stem + " - german-dub.mkv")
-        legacy_reservation(path, identity)
-        outputs.append(path)
+        legacy = video_library.output_path(shows, {**identity, "year": ""})
+        legacy = legacy.with_name(legacy.stem + " - german-dub.mkv")
+        legacy_reservation(legacy, identity)
+        primary = (
+            shows
+            / "One Piece (1999)"
+            / "Season 01"
+            / f"One Piece (1999) - S01E{number:02d} - german-dub.mkv"
+        )
+        outputs.append(legacy if existing_file and number == numbers[0] else primary)
     if existing_file:
         outputs[0].parent.mkdir(parents=True)
         outputs[0].write_bytes(b"existing One Piece episode")
@@ -254,7 +260,7 @@ def test_one_piece_requeues_old_year_range_without_losing_existing_files(
     expected = list(numbers[1:] if existing_file else numbers)
     assert state["downloads"] == expected
     assert all(path.is_file() for path in outputs)
-    assert outputs[0].parent == shows / "One Piece/Season 01"
+    assert outputs[-1].parent == shows / "One Piece (1999)/Season 01"
     assert all(json.loads(reserved(path))["year"] == "1999" for path in outputs)
     if existing_file:
         assert outputs[0].read_bytes() == b"existing One Piece episode"
@@ -271,3 +277,66 @@ def test_one_piece_requeues_old_year_range_without_losing_existing_files(
     assert repeated["status"] == "completed", repeated["errors"]
     assert repeated["errors"] == "[]"
     assert state["downloads"] == expected
+
+
+def test_one_piece_keeps_live_action_and_anime_reservations_separate(client, one_piece):
+    state, numbers, shows, _ = one_piece
+    state["end_year"] = "2026"
+    urls = [f"{SERIES_URL}/staffel-1/episode-{number}" for number in numbers]
+    old_paths = [
+        shows
+        / "One Piece"
+        / "Season 01"
+        / f"One Piece - S01E{number:02d} - german-dub.mkv"
+        for number in numbers
+    ]
+    old_paths[0].parent.mkdir(parents=True)
+    old_paths[0].write_bytes(b"FilmPalast live-action episode")
+    old_paths[2].write_bytes(b"previous AniWorld anime episode")
+    foreign = [
+        legacy_reservation(
+            path,
+            {
+                **IDENTITY,
+                "id": "filmpalast-live-action",
+                "year": "",
+                "episode": number,
+                "end": number,
+            },
+        )
+        for path, number in zip(old_paths[:2], numbers[:2])
+    ]
+    legacy_reservation(
+        old_paths[2], {**IDENTITY, "episode": numbers[2], "end": numbers[2]}
+    )
+
+    def list_downloaded():
+        response = client.get(
+            "/api/episodes", query_string={"url": SERIES_URL + "/staffel-1"}
+        )
+        assert response.status_code == 200, response.get_json()
+        return [row["downloaded"] for row in response.get_json()["episodes"]]
+
+    listed = list_downloaded()
+    response = client.post(
+        "/api/download",
+        json={"episodes": urls, "title": "One Piece", "provider": "VOE"},
+    )
+    assert response.status_code == 200, response.get_json()
+    queue_id = response.get_json()["queue_id"]
+    worker._process(db.get_queue_item(queue_id))
+    result = db.get_queue_item(queue_id)
+    assert result["errors"] == "[]"
+    assert result["status"] == "completed"
+    assert listed == [False, False, True]
+    assert list_downloaded() == [True, True, True]
+    assert state["downloads"] == list(numbers[:2])
+    assert old_paths[0].read_bytes() == b"FilmPalast live-action episode"
+    assert not old_paths[1].exists()
+    assert old_paths[2].read_bytes() == b"previous AniWorld anime episode"
+    assert [reserved(path) for path in old_paths[:2]] == foreign
+    anime = shows / "One Piece (1999)" / "Season 01"
+    assert sorted(p.name for p in anime.glob("*.mkv")) == [
+        f"One Piece (1999) - S01E{number:02d} - german-dub.mkv"
+        for number in numbers[:2]
+    ]

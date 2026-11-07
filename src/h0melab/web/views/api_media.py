@@ -29,7 +29,7 @@ from ...search import (
     fetch_popular_series,
     random_anime,
 )
-from .. import media, sitesearch, video_library
+from .. import connector_files, media, media_targets, paths, sitesearch, video_library
 from ..search_contract import (
     BROWSE_PATHS,
     media_type,
@@ -542,7 +542,14 @@ def _season_episodes(provider, url, series_url):
     else:
         season = provider.season_cls(url=url, series=found)
 
-    downloaded = media.downloaded_episodes(found) if found else set()
+    typed_root = (
+        media_targets.read().get("series_root")
+        if found
+        and provider.name == "AniWorld"
+        and not getattr(season, "are_movies", False)
+        else None
+    )
+    downloaded = media.downloaded_episodes(found) if found and not typed_root else set()
 
     override_languages = SEASON_LANGUAGE_OVERRIDES.get(provider.name)
     season_languages = list(override_languages) if override_languages else None
@@ -558,6 +565,7 @@ def _season_episodes(provider, url, series_url):
 
     results = []
     for episode in season.episodes:
+        identity = None
         if (
             found
             and isinstance(getattr(found, "title", None), str)
@@ -594,14 +602,23 @@ def _season_episodes(provider, url, series_url):
         if provider.name == "HanimeTV" and not languages:
             languages = ["Japanese"]
 
+        on_disk = (episode.season.season_number, episode.episode_number) in downloaded
+        if typed_root and identity and identity["media_type"] == "series":
+            variants = dict.fromkeys([*languages, *paths.LANG_FOLDERS, "Japanese"])
+            extension = getattr(episode, "_file_extension", "mkv")
+            on_disk = any(
+                connector_files.typed_video_exists(
+                    typed_root, identity, extension, variant
+                )
+                for variant in variants
+            )
         results.append(
             {
                 "url": episode.url,
                 "episode_number": episode.episode_number,
                 "title_de": getattr(episode, "title_de", ""),
                 "title_en": getattr(episode, "title_en", ""),
-                "downloaded": (episode.season.season_number, episode.episode_number)
-                in downloaded,
+                "downloaded": on_disk,
                 "available_languages": languages,
                 "page_count": 0,
             }
