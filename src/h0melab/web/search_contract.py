@@ -18,6 +18,8 @@ SITE_TYPES = {
 }
 
 BROWSE_PATHS = {
+    "zdf": ("api/zdf-preview",),
+    "dmax": ("api/dmax-preview",),
     "aniworld": ("api/new-animes", "api/popular-animes"),
     "sto": ("api/new-series", "api/popular-series"),
     "megakino": ("api/popular-movies",),

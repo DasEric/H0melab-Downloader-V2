@@ -898,7 +898,11 @@ def _mangafire_card(item):
     }
 
 
+from ...models.broadcasters.browse import fetch_zdf_preview, fetch_dmax_preview
+
 _BROWSE_ROWS = (
+    ("/zdf-preview", "zdf_preview", fetch_zdf_preview),
+    ("/dmax-preview", "dmax_preview", fetch_dmax_preview),
     ("/new-animes", "new_animes", fetch_new_animes),
     ("/popular-animes", "popular_animes", fetch_popular_animes),
     ("/new-series", "new_series", fetch_new_series),

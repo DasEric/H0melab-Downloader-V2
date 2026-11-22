@@ -61,6 +61,18 @@
   </div>
 
   <div id="browse">
+    {% if sites.zdf %}
+    <section class="browse-section" data-row="zdf_preview" data-sites="zdf">
+      <h2 class="browse-heading">ZDF – Entdecken</h2>
+      <div class="browse-grid"></div>
+    </section>
+    {% endif %}
+    {% if sites.dmax %}
+    <section class="browse-section" data-row="dmax_preview" data-sites="dmax">
+      <h2 class="browse-heading">DMAX – Sendungen entdecken</h2>
+      <div class="browse-grid"></div>
+    </section>
+    {% endif %}
     {% if sites.aniworld %}
     <section class="browse-section" data-row="new_animes" data-sites="aniworld">
       <h2 class="browse-heading" data-i18n="browse.new_animes">New Animes</h2>
