@@ -54,7 +54,7 @@ def test_targeted_refresh(configured, monkeypatch, kind, library, collection):
     assert calls[1][1]["params"]["ReplaceAllMetadata"] == "false"
     for url, kw in calls:
         assert kw["timeout"] == 10 and kw["allow_redirects"] is False
-        assert kw["headers"] == {"X-Emby-Token": "secret"}
+        assert kw["headers"] == {"Authorization": 'MediaBrowser Token="secret"'}
         assert "secret" not in url
 
 
@@ -169,7 +169,9 @@ def test_library_choices_use_draft_key_without_saving(client, monkeypatch):
     assert response.headers["Cache-Control"] == "no-store"
     assert len(response.get_json()["libraries"]) == 2
     assert calls[0][0] == "http://jellyfin:8096/base/Library/VirtualFolders"
-    assert calls[0][1]["headers"]["X-Emby-Token"] == "draft-secret"
+    assert calls[0][1]["headers"] == {
+        "Authorization": 'MediaBrowser Token="draft-secret"'
+    }
     assert calls[0][1]["allow_redirects"] is False
     assert calls[0][1]["timeout"] == 10
     assert "draft-secret" not in response.get_data(as_text=True)
@@ -185,7 +187,7 @@ def test_library_choices_saved_key_and_generic_failure(client, configured, monke
             pass
 
         def get(self, url, **kwargs):
-            assert kwargs["headers"]["X-Emby-Token"] == "secret"
+            assert kwargs["headers"] == {"Authorization": 'MediaBrowser Token="secret"'}
             raise TimeoutError("private-secret-data")
 
     monkeypatch.setattr(jellyfin.niquests, "Session", Session)

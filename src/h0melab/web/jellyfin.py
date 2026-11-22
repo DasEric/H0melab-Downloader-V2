@@ -73,6 +73,12 @@ def collect_settings(payload, updates):
         updates[key] = value
 
 
+def _auth_headers(token):
+    """Use the supported scheme, including when legacy auth is disabled."""
+    escaped = token.replace("\\", "\\\\").replace('"', '\\"')
+    return {"Authorization": f'MediaBrowser Token="{escaped}"'}
+
+
 def refresh(media_type):
     """Queue only the configured typed library; never refresh all libraries."""
     kind = {"movie": "movie", "tv": "series", "series": "series"}.get(media_type)
@@ -89,7 +95,7 @@ def refresh(media_type):
             return False
         # Verify both collection type and ID, rather than trusting swapped settings.
         with niquests.Session() as session:
-            headers = {"X-Emby-Token": token}
+            headers = _auth_headers(token)
             response = session.get(
                 url + "/Library/VirtualFolders",
                 headers=headers,
@@ -154,7 +160,7 @@ def libraries(payload):
         with niquests.Session() as session:
             response = session.get(
                 url + "/Library/VirtualFolders",
-                headers={"X-Emby-Token": token},
+                headers=_auth_headers(token),
                 timeout=10,
                 allow_redirects=False,
             )
