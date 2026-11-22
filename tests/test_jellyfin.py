@@ -204,3 +204,56 @@ def test_library_choices_require_admin(client, api_key, monkeypatch, scope):
         "/api/settings/jellyfin/libraries", json={}, headers={"X-API-Key": raw}
     )
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize(
+    "code,expected",
+    [
+        (401, "API-Key"),
+        (403, "Berechtigung"),
+        (302, "weiter"),
+        (404, "Base-Path"),
+        (502, "HTTP 502"),
+    ],
+)
+def test_library_http_diagnostics(client, configured, monkeypatch, code, expected):
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, *args, **kwargs):
+            return SimpleNamespace(status_code=code)
+
+    monkeypatch.setattr(jellyfin.niquests, "Session", Session)
+    response = client.post("/api/settings/jellyfin/libraries", json={})
+    assert response.status_code == 400
+    assert expected in response.get_json()["error"]
+    assert "secret" not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize(
+    "kind,expected",
+    [
+        ("Timeout", "Zeitüberschreitung"),
+        ("SSLError", "Zertifikat"),
+        ("ConnectionError", "Verbindung"),
+    ],
+)
+def test_library_network_diagnostics(client, configured, monkeypatch, kind, expected):
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, *args, **kwargs):
+            raise getattr(jellyfin.niquests.exceptions, kind)("private-key-and-url")
+
+    monkeypatch.setattr(jellyfin.niquests, "Session", Session)
+    response = client.post("/api/settings/jellyfin/libraries", json={})
+    assert expected in response.get_json()["error"]
+    assert "private-key-and-url" not in response.get_data(as_text=True)

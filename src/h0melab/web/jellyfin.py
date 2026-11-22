@@ -158,11 +158,33 @@ def libraries(payload):
                 timeout=10,
                 allow_redirects=False,
             )
-            if response.status_code != 200:
-                raise ValueError("Library discovery failed")
-            rows = response.json()
+            code = response.status_code
+            if code in (401, 403):
+                raise SettingsError(
+                    f"Jellyfin antwortet mit HTTP {code}: API-Key oder Berechtigung abgewiesen."
+                )
+            if 300 <= code < 400:
+                raise SettingsError(
+                    f"HTTP {code}: Server leitet weiter. Die endgültige Jellyfin-URL inklusive Base-Path eintragen."
+                )
+            if code == 404:
+                raise SettingsError(
+                    "HTTP 404: Jellyfin-API nicht gefunden. Server-Port und Base-Path prüfen; nicht die /web-Adresse verwenden."
+                )
+            if code != 200:
+                raise SettingsError(
+                    f"Jellyfin-Bibliotheksabfrage: HTTP {code}. Server oder Reverse Proxy prüfen."
+                )
+            try:
+                rows = response.json()
+            except ValueError:
+                raise SettingsError(
+                    "Server liefert kein gültiges JSON. URL zeigt möglicherweise auf eine Weboberfläche oder Proxy-Anmeldeseite statt Jellyfin."
+                ) from None
         if not isinstance(rows, list):
-            raise TypeError("Invalid library response")
+            raise SettingsError(
+                "Unerwartete API-Antwort: Jellyfin-Bibliotheksliste fehlt. Server-URL und Reverse Proxy prüfen."
+            )
         result = []
         seen = set()
         for row in rows:
@@ -185,6 +207,20 @@ def libraries(payload):
                 }
             )
         return result
+    except SettingsError:
+        raise
+    except niquests.exceptions.SSLError:
+        raise SettingsError(
+            "TLS-Zertifikatsprüfung fehlgeschlagen. Zertifikat, Hostname und Zertifikatskette auf dem Downloader prüfen."
+        ) from None
+    except niquests.exceptions.Timeout:
+        raise SettingsError(
+            "Zeitüberschreitung beim Zugriff vom Downloader auf Jellyfin. NAS-IP, veröffentlichten Docker-Port und Firewall zwischen VM und NAS prüfen."
+        ) from None
+    except niquests.exceptions.ConnectionError:
+        raise SettingsError(
+            "Verbindung vom Downloader zu Jellyfin fehlgeschlagen. NAS-IP und veröffentlichten Docker-Port verwenden; localhost bezeichnet die Downloader-VM. DNS und Firewall prüfen."
+        ) from None
     except Exception:
         raise SettingsError(
             "Bibliotheken konnten nicht geladen werden. Server-URL, API-Key und Erreichbarkeit prüfen."
