@@ -703,12 +703,13 @@
           <label class="checkbox"><input id="jellyfinClearKey" type="checkbox" /> Gespeicherten API-Key löschen</label>
           <label class="field"><span class="field-label">Filmbibliothek</span><select id="jellyfinMovie"><option value="">Keine ausgewählt</option></select></label>
           <label class="field"><span class="field-label">Serienbibliothek</span><select id="jellyfinSeries"><option value="">Keine ausgewählt</option></select></label>
-          <div class="action-row"><button type="button" class="btn btn-secondary" id="loadJellyfinLibraries">Bibliotheken laden</button></div>
+          <div class="action-row"><button type="button" class="btn btn-secondary" id="loadJellyfinLibraries" aria-describedby="jellyfinStatus">Bibliotheken laden</button></div>
+          <p class="integration-status hint" id="jellyfinStatus" role="status" aria-live="polite"></p>
           <p class="hint">Server-URL und API-Key eingeben, Bibliotheken laden und auswählen. Ein leerer API-Key nutzt den gespeicherten Schlüssel. Laden speichert noch nichts; anschließend „Jellyfin speichern“. Film- und Serienbibliotheken werden nach Typ getrennt.</p>
           <div class="action-row">
             <button type="button" class="btn btn-primary" id="saveJellyfin">Jellyfin speichern</button>
           </div>
-          <p class="integration-status hint" id="jellyfinStatus" role="status" aria-live="polite"></p>
+
         </section>
         <section class="card integration-settings" id="seerrSettings">
           <h2><i class="fa-solid fa-inbox" aria-hidden="true"></i> Seerr</h2>
@@ -835,7 +836,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}"></script>
+<script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>
   window.AUTH_ENABLED = {{ auth_enabled | tojson }};

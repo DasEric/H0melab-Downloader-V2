@@ -18,10 +18,13 @@
     el('jellyfinUrl').value = cfg.url;
     choices('jellyfinMovie', [], cfg.movie_library_id);
     choices('jellyfinSeries', [], cfg.series_library_id);
-    status(`API-Key ${cfg.key_set ? 'gespeichert' : 'fehlt'} Â· ${cfg.url ? 'Server konfiguriert' : 'Deaktiviert'}`);
+    status(`API-Key ${cfg.key_set ? 'gespeichert' : 'fehlt'} · ${cfg.url ? 'Server konfiguriert' : 'Deaktiviert'}`);
   }
   el('loadJellyfinLibraries').addEventListener('click', async () => {
-    el('loadJellyfinLibraries').disabled = true;
+    const button = el('loadJellyfinLibraries');
+    button.disabled = true;
+    button.textContent = 'Bibliotheken werden geladen …';
+    status('Verbindung zu Jellyfin wird geprüft …');
     const url = el('jellyfinUrl').value;
     const key = el('jellyfinKey').value;
     const clearing = el('jellyfinClearKey').checked;
@@ -33,11 +36,12 @@
       if (url !== el('jellyfinUrl').value || key !== el('jellyfinKey').value || clearing !== el('jellyfinClearKey').checked) {
         status('Zugangsdaten geändert. Bibliotheken bitte erneut laden.'); return;
       }
+      if (!Array.isArray(data.libraries)) throw new Error('Ungültige Serverantwort. Downloader aktualisieren und neu starten.');
       choices('jellyfinMovie', data.libraries.filter(row => row.type === 'movies'), el('jellyfinMovie').value);
       choices('jellyfinSeries', data.libraries.filter(row => row.type === 'tvshows'), el('jellyfinSeries').value);
-      status(`${data.libraries.length} Film-/Serienbibliotheken geladen. Auswahl prüfen und speichern.`);
+      status(data.libraries.length ? `${data.libraries.length} Film-/Serienbibliotheken geladen. Jetzt oben auswählen und speichern.` : 'Keine Film-/Serienbibliotheken gefunden. In Jellyfin muss der Inhaltstyp Filme oder Serien eingestellt sein.');
     } catch (error) { status(error.message); }
-    finally { el('loadJellyfinLibraries').disabled = false; }
+    finally { button.disabled = false; button.textContent = 'Bibliotheken laden'; }
   });
   el('saveJellyfin').addEventListener('click', async () => {
     el('saveJellyfin').disabled = true;
