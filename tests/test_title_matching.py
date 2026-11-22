@@ -379,37 +379,16 @@ def test_an_undecoded_title_would_not_match_its_own_folder():
     )
 
 
-def test_kinox_decodes_entities_in_the_title():
-    from h0melab.models.kinox.series import KinoxSeries
-
-    series = _with_html(
-        KinoxSeries,
-        '<meta property="og:title" content="It&#039;s Complicated (2009)">',
-        "title",
-        "slug",
-    )
-    assert series.title == "It's Complicated"
 
 
-def test_burningseries_decodes_entities_in_the_title():
-    from h0melab.models.burningseries.series import BurningSeriesSeries
-
-    series = _with_html(
-        BurningSeriesSeries, "<h2>It&#039;s Always Sunny</h2>", "title", "slug"
-    )
-    assert series.title == "It's Always Sunny"
 
 
 def test_every_provider_decodes_entities_in_its_title_path():
     """Checking the file merely contains "unescape" is not enough.
 
-    kinox and burningseries both had unescape elsewhere in the file while their
-    title property did not decode, so a grep for the word passed while the bug
-    was live. This drives each provider's real title extraction instead.
+    This drives each retained provider's real title extraction.
     """
-    from h0melab.models.burningseries.series import BurningSeriesSeries
     from h0melab.models.filmpalast_to.episode import FilmPalastEpisode
-    from h0melab.models.kinox.series import KinoxSeries
     from h0melab.models.megakino.series import MegaKinoEpisode
     from h0melab.models.s_to.series import SerienstreamSeries
 
@@ -432,12 +411,6 @@ def test_every_provider_decodes_entities_in_its_title_path():
                 o._FilmPalastEpisode__title_de,
             )[1],
         ),
-        (
-            KinoxSeries,
-            '<meta property="og:title" content="A&#039;B">',
-            lambda o: o.title,
-        ),
-        (BurningSeriesSeries, "<h2>A&#039;B</h2>", lambda o: o.title),
     ]
 
     still_escaped = []

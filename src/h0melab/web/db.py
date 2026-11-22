@@ -5,6 +5,8 @@ import os
 import random
 import sqlite3
 import time
+from contextlib import contextmanager
+from pathlib import Path
 
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -306,6 +308,7 @@ _MIGRATIONS = {
         "total_bytes": "INTEGER NOT NULL DEFAULT 0",
         "payload_version": "INTEGER NOT NULL DEFAULT 1",
         "request_key": "TEXT",
+        "not_before": "REAL NOT NULL DEFAULT 0",
     },
     "autosync_series": {"subtitle_language": "TEXT NOT NULL DEFAULT 'none'"},
 }
@@ -353,6 +356,9 @@ def init_db():
             conn.execute(
                 "INSERT INTO upcoming_state(key, value) VALUES ('v2_media_migrated', datetime('now'))"
             )
+        from .legacy_migration import retire_request_integration
+
+        retire_request_integration(conn)
     _initialized = True
     _bootstrap_admin()
 
@@ -873,9 +879,32 @@ def get_next_queued():
     with session() as conn:
         return _row(
             conn,
-            "SELECT * FROM download_queue WHERE status = 'queued' AND pause_requested = 0 "
+            "SELECT * FROM download_queue WHERE status = 'queued' AND pause_requested = 0 AND not_before<=CAST(strftime('%s','now') AS REAL) "
             "ORDER BY position ASC, id ASC LIMIT 1",
         )
+
+
+def claim_next_queued():
+    """Serialize busy-check and claim across all connections/processes."""
+    with session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        if conn.execute(
+            "SELECT 1 FROM download_queue WHERE status='running' LIMIT 1"
+        ).fetchone():
+            return None
+        item = _row(
+            conn,
+            "SELECT * FROM download_queue WHERE status='queued' AND pause_requested=0 AND not_before<=CAST(strftime('%s','now') AS REAL) "
+            "ORDER BY position ASC,id ASC LIMIT 1",
+        )
+        if item is None:
+            return None
+        conn.execute(
+            "UPDATE download_queue SET status='running',started_at=datetime('now'), "
+            "completed_at=NULL WHERE id=?",
+            (item["id"],),
+        )
+        return _row(conn, "SELECT * FROM download_queue WHERE id=?", (item["id"],))
 
 
 def set_queue_status(queue_id, status):
@@ -934,9 +963,10 @@ def cancel_queue_item(queue_id, force=False):
     item, so that one is cancelled straight away.
     """
     with session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         item = _row(
             conn,
-            "SELECT status, cancel_requested, pause_requested FROM download_queue WHERE id = ?",
+            "SELECT status, cancel_requested, pause_requested, source FROM download_queue WHERE id = ?",
             (queue_id,),
         )
         if not item:
@@ -969,6 +999,11 @@ def cancel_queue_item(queue_id, force=False):
                 "UPDATE download_queue SET cancel_requested = 1, pause_requested = 0, "
                 "paused_at = NULL WHERE id = ?",
                 (queue_id,),
+            )
+        if item["source"] == "seerr" and (item["status"] == "queued" or force):
+            conn.execute(
+                "UPDATE seerr_requests SET status='cancelled',updated=? WHERE queue_id=?",
+                (time.time(), queue_id),
             )
     return True, None
 
@@ -1040,20 +1075,34 @@ def pause_queue_item(queue_id):
 def finish_pause(queue_id):
     """Commit the worker's transition from running to paused."""
     with session() as conn:
-        conn.execute(
+        conn.execute("BEGIN IMMEDIATE")
+        changed = conn.execute(
             "UPDATE download_queue SET status = 'queued', pause_requested = 1, "
             "paused_at = COALESCE(paused_at, datetime('now')), captcha_url = NULL, "
-            "active_provider = NULL WHERE id = ?",
+            "active_provider = NULL WHERE id = ? "
+            "AND status IN ('queued','running') AND cancel_requested=0",
             (queue_id,),
-        )
+        ).rowcount
+        if not changed:
+            return
+
+        item = conn.execute(
+            "SELECT source FROM download_queue WHERE id=?", (queue_id,)
+        ).fetchone()
+        if item and item["source"] == "seerr":
+            conn.execute(
+                "UPDATE seerr_requests SET status='paused',updated=? WHERE queue_id=?",
+                (time.time(), queue_id),
+            )
 
 
 def resume_queue_item(queue_id):
     """Make a paused item claimable without discarding completed progress."""
     with session() as conn:
+        conn.execute("BEGIN IMMEDIATE")
         item = _row(
             conn,
-            "SELECT status, pause_requested FROM download_queue WHERE id = ?",
+            "SELECT status, pause_requested, source FROM download_queue WHERE id = ?",
             (queue_id,),
         )
         if not item:
@@ -1068,6 +1117,12 @@ def resume_queue_item(queue_id):
             "WHERE id = ?",
             (queue_id,),
         )
+        if item["source"] == "seerr":
+            conn.execute(
+                "UPDATE seerr_requests SET status='waiting',updated=? "
+                "WHERE queue_id=? AND status='paused'",
+                (time.time(), queue_id),
+            )
     return True, None
 
 
@@ -1141,9 +1196,85 @@ def clear_completed():
         )
 
 
+@contextmanager
+def worker_ownership():
+    """Hold the sole worker lease until close/process death, not a wall-clock TTL.
+
+    The lock file is deliberately never unlinked: replacing its inode would let
+    a second process acquire a different lock for the same database.
+    """
+    lock_path = Path(DB_PATH).resolve().with_suffix(".worker.lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+b")
+    acquired = False
+    try:
+        if handle.tell() == 0:
+            handle.write(b"0")
+            handle.flush()
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            acquired = True
+        except OSError:
+            pass
+        yield acquired
+    finally:
+        if acquired:
+            handle.seek(0)
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+        handle.close()
+
+
 def reset_stale_running():
+    """Recover only when no other process owns the download worker."""
+    with worker_ownership() as acquired:
+        if not acquired:
+            return False
+        _reset_stale_running_owned()
+        return True
+
+
+def _reset_stale_running_owned():
     """Requeue items left 'running' by a previous process that died."""
     with session() as conn:
+        conn.execute(
+            "UPDATE download_queue SET status='cancelled', completed_at=datetime('now'), "
+            "captcha_url=NULL WHERE status='running' AND (cancel_requested=1 OR force_cancelled=1)"
+        )
+        # Request state must agree even when the process died before finish().
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        if "seerr_requests" in tables:
+            conn.execute(
+                "UPDATE seerr_requests SET status='cancelled',updated=? WHERE queue_id IN "
+                "(SELECT id FROM download_queue WHERE source='seerr' AND status='cancelled')",
+                (time.time(),),
+            )
+        if "seerr_requests" in tables:
+            conn.execute(
+                "UPDATE seerr_requests SET status=CASE WHEN queue_id IN "
+                "(SELECT id FROM download_queue WHERE pause_requested=1) THEN 'paused' ELSE 'waiting' END, "
+                "updated=? WHERE queue_id IN "
+                "(SELECT id FROM download_queue WHERE source='seerr' AND status='running') "
+                "AND status IN ('received','waiting','checking','downloading','paused')",
+                (time.time(),),
+            )
         conn.execute(
             "UPDATE download_queue SET status = 'queued', captcha_url = NULL, "
             "paused_at = COALESCE(paused_at, datetime('now')) "

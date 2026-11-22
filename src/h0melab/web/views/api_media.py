@@ -14,13 +14,10 @@ from ...models.mangafire_to.series import _get as get_mangafire
 from ...models.moflix_stream.client import MoflixResponseError
 from ...providers import resolve_provider
 from ...search import (
-    fetch_burningseries_series,
-    fetch_cineby_movies,
     fetch_filmo_movies,
     fetch_filmpalast_movies,
     fetch_genre_animes,
     fetch_genres,
-    fetch_kinox_movies,
     fetch_moflix_movies,
     fetch_new_animes,
     fetch_new_series,
@@ -29,7 +26,7 @@ from ...search import (
     fetch_popular_series,
     random_anime,
 )
-from .. import connector_files, media, media_targets, paths, sitesearch, video_library
+from .. import media_files, media, media_targets, paths, sitesearch, video_library
 from ..search_contract import (
     BROWSE_PATHS,
     media_type,
@@ -46,11 +43,11 @@ _offer_cache = {}
 _offer_lock = threading.Lock()
 
 # Legacy single-page models; grouped episode families are resolved first.
-SINGLE_PAGE_SITES = ("MegaKino", "FilmPalast", "Filmo")
+SINGLE_PAGE_SITES = ("MegaKino", "FilmPalast", "Filmo", "ZDF", "DMAX")
 
 # These resolve their stream per episode, so the language is read once at the
 # season level instead of probing every episode.
-SEASON_LEVEL_LANGUAGE_SITES = ("Kinox", "BurningSeries", "Cineby")
+SEASON_LEVEL_LANGUAGE_SITES = ()
 
 # Sites whose season endpoint has no per-episode language information. Keeping
 # the known languages here avoids probing every episode just to build the list.
@@ -309,17 +306,13 @@ def seasons():
             return jsonify({"seasons": _single_page_seasons(provider, url)})
 
         found = provider.series_cls(url=url)
-        # burning-series has no per-season count on the series page, reading it
-        # here would fetch every season up front. The count fills in when a
-        # season is expanded instead.
-        defer_counts = provider.name == "BurningSeries"
         return jsonify(
             {
                 "seasons": [
                     {
                         "url": season.url,
                         "season_number": season.season_number,
-                        "episode_count": None if defer_counts else season.episode_count,
+                        "episode_count": season.episode_count,
                         "are_movies": getattr(season, "are_movies", False),
                         "chapter_type": getattr(season, "chapter_type", ""),
                     }
@@ -344,6 +337,21 @@ def seasons():
 
 def _single_page_seasons(provider, url):
     """Use the actual episode picker, not a genre/category in the source URL."""
+    if provider.name == "DMAX":
+        from ...models.broadcasters.dmax import DMAX_COLLECTION_PATTERN, DMAXCollection
+
+        if DMAX_COLLECTION_PATTERN.fullmatch(url):
+            return DMAXCollection(url).season_rows()
+    if provider.name == "ZDF":
+        from ...models.broadcasters.collection import ZDFCollection, is_zdf_collection
+
+        if is_zdf_collection(url):
+            return ZDFCollection(url).season_rows()
+    if provider.name in ("ZDF", "DMAX"):
+        episode = provider.episode_cls(url=url)
+        return [{"url": url, "season_number": episode.season_number,
+                 "episode_count": 1, "are_movies": episode.is_movie,
+                 "label": "Video" if episode.season_number is None else ""}]
     if provider.name == "MegaKino":
         episode = provider.episode_cls(url=url)
         if episode.is_series:
@@ -443,7 +451,24 @@ def episodes():
 
 
 def _single_page_episodes(provider, url):
+    if provider.name == "DMAX":
+        from ...models.broadcasters.dmax import DMAX_COLLECTION_PATTERN, DMAXCollection
+
+        if DMAX_COLLECTION_PATTERN.fullmatch(url):
+            return DMAXCollection(url).episode_rows()
+    if provider.name == "ZDF":
+        from ...models.broadcasters.collection import ZDFCollection, is_zdf_collection
+
+        if is_zdf_collection(url):
+            return ZDFCollection(url).episode_rows()
     episode = provider.episode_cls(url=url, selected_language="German Dub")
+
+    if provider.name in ("ZDF", "DMAX"):
+        video_library.remember(url, episode.video_identity)
+        return [{"url": url, "season_number": episode.season_number,
+                 "episode_number": episode.episode_number, "title_de": episode.title,
+                 "title_en": episode.title, "downloaded": False,
+                 "available_languages": media.language_labels(episode.provider_data)}]
 
     if provider.name == "MegaKino" and episode.is_series:
         entries = _numbered_serials(episode)
@@ -607,7 +632,7 @@ def _season_episodes(provider, url, series_url):
             variants = dict.fromkeys([*languages, *paths.LANG_FOLDERS, "Japanese"])
             extension = getattr(episode, "_file_extension", "mkv")
             on_disk = any(
-                connector_files.typed_video_exists(
+                media_files.typed_video_exists(
                     typed_root, identity, extension, variant
                 )
                 for variant in variants
@@ -705,8 +730,6 @@ def providers():
         provider = resolve_provider(url)
         if provider.name == "MangaFire":
             return result({})
-        if provider.name == "Cineby":
-            return result(_cineby_providers(provider, url))
 
         episode = provider.episode_cls(url=url, **_build_kwargs(provider))
         if provider.name == "HanimeTV":
@@ -721,15 +744,6 @@ def providers():
         return jsonify({"error": str(exc)}), 500
 
 
-def _cineby_providers(provider, url):
-    """Cineby has one implicit hoster, but German audio only for some titles."""
-    labels = []
-    try:
-        episode = provider.episode_cls(url=url)
-        labels = list(episode.available_language_labels) or labels
-    except Exception as exc:
-        logger.warning("Cineby language detection failed: %s", exc)
-    return {label: ["Cineby"] for label in labels}
 
 
 # ---------------------------------------------------------------------------
@@ -890,11 +904,8 @@ _BROWSE_ROWS = (
     ("/new-series", "new_series", fetch_new_series),
     ("/popular-series", "popular_series", fetch_popular_series),
     ("/popular-movies", "popular_movies", fetch_popular_movies),
-    ("/kinox-movies", "kinox_movies", fetch_kinox_movies),
     ("/filmpalast-movies", "filmpalast_movies", fetch_filmpalast_movies),
     ("/filmo-movies", "filmo_movies", fetch_filmo_movies),
-    ("/burningseries-series", "burningseries_series", fetch_burningseries_series),
-    ("/cineby-movies", "cineby_movies", fetch_cineby_movies),
     ("/moflix-movies", "moflix_movies", fetch_moflix_movies),
     ("/htv-trending", "htv_trending", _fetch_hanime_trending),
     ("/mangafire-trending", "mangafire_trending", _fetch_mangafire_trending),

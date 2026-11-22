@@ -4,9 +4,7 @@ from h0melab.models import (
     AniworldEpisode,
     AniworldSeason,
     AniworldSeries,
-    BurningSeriesSeries,
     FilmPalastEpisode,
-    KinoxSeries,
     SerienstreamEpisode,
     SerienstreamSeason,
     SerienstreamSeries,
@@ -78,8 +76,6 @@ def run_all_tests():
         ),
         # New sites (contributed): movie + series entry points
         (FilmPalastEpisode, "https://filmpalast.to/stream/scream-7"),
-        (KinoxSeries, "https://kinox.to/Stream/Avatar-Der_Herr_der_Elemente.html"),
-        (BurningSeriesSeries, "https://bs.to/serie/Breaking-Bad"),
     ]
     all_passed = True
     for cls, url in tests:

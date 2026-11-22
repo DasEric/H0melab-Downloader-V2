@@ -14,11 +14,8 @@ from ..search import (
     query as query_aniworld,
 )
 from ..search import (
-    query_burningseries,
-    query_cineby,
     query_filmo,
     query_filmpalast,
-    query_kinox,
     query_megakino,
     query_moflix,
     query_s_to,
@@ -32,11 +29,8 @@ SITE_SEARCH = {
     "aniworld": query_aniworld,
     "sto": query_s_to,
     "megakino": query_megakino,
-    "kinox": query_kinox,
     "filmpalast": query_filmpalast,
     "filmo": query_filmo,
-    "burningseries": query_burningseries,
-    "cineby": query_cineby,
     "mangafire": query_mangafire,
 }
 
@@ -55,18 +49,14 @@ _RELATIVE_SITES = {
 
 _ABSOLUTE_BASES = {"mangafire": "https://mangafire.to"}
 
-# Sites checked for a Discord request, in priority order. Kinox and Cineby carry
-# both movies and series, so they appear in both lists.
+# Sites checked for media requests, in priority order.
 SERIES_SITES = (
     "sto",
-    "burningseries",
     "aniworld",
     "megakino",
-    "kinox",
-    "cineby",
     "moflix",
 )
-MOVIE_SITES = ("megakino", "cineby", "filmpalast", "filmo", "kinox", "moflix")
+MOVIE_SITES = ("megakino", "filmpalast", "filmo", "moflix")
 
 
 class SearchResults(list):
@@ -96,6 +86,34 @@ def _poster(item):
 
 def search(site, keyword):
     """Run one site's search and return normalised [{title, url, poster}]."""
+    if site in ("zdf", "dmax"):
+        from ..models.broadcasters import DMAXEpisode, ZDFEpisode
+        from ..models.broadcasters.collection import is_zdf_collection, zdf_title
+        from ..models.broadcasters.dmax import (
+            DMAX_COLLECTION_PATTERN,
+            DMAXClient,
+            dmax_title,
+        )
+        from ..models.broadcasters.zdf import ZDFClient
+
+        cls = {"zdf": ZDFEpisode, "dmax": DMAXEpisode}[site]
+        collection = (site == "zdf" and is_zdf_collection(keyword)) or (site == "dmax" and DMAX_COLLECTION_PATTERN.fullmatch(keyword))
+        if not keyword.lower().startswith(("http:", "https:")):
+            client = {"zdf": ZDFClient, "dmax": DMAXClient}[site]()
+            try:
+                return client.search(keyword)
+            except ValueError as exc:
+                return SearchResults(error=str(exc))
+            finally:
+                client.close()
+        if not cls.pattern.fullmatch(keyword) and not collection:
+            return SearchResults(error=f"{cls.name}: enter a valid video or show URL")
+        try:
+            episode = ({"zdf": zdf_title, "dmax": dmax_title}[site])(keyword) if collection else cls(keyword)
+            return [{"title": episode.title, "url": keyword, "poster": episode.poster_url,
+                     "source": site, "media_type": "movie" if episode.is_movie else "series"}]
+        except ValueError as exc:
+            return SearchResults(error=str(exc))
     query = SITE_SEARCH.get(site)
     if not query:
         return []
@@ -103,10 +121,10 @@ def search(site, keyword):
     try:
         raw = query(keyword)
     except MoflixResponseError as exc:
-        logger.warning("Search on %s failed: %s", site, exc)
+        logger.warning("Search on %s failed", site)
         return SearchResults(error=str(exc))
     except Exception as exc:
-        logger.warning("Search on %s failed for '%s': %s", site, keyword, exc)
+        logger.warning("Search on %s failed", site)
         return SearchResults(error=f"Search on {site} failed")
     if raw is None:
         return SearchResults(error=f"Search on {site} returned no valid response")
@@ -133,6 +151,10 @@ def search(site, keyword):
                         "original_title",
                         "alternative_titles",
                         "tmdb_id",
+                        "imdb_id",
+                        "imdb",
+                        "external_ids",
+                        "release_date",
                         "series_id",
                         "series_url",
                         "series_title",

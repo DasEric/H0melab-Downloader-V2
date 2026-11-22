@@ -5,17 +5,11 @@ from re import Pattern
 from urllib.parse import urlparse, urlunparse
 
 from .config import (
-    BURNINGSERIES_EPISODE_PATTERN,
-    BURNINGSERIES_SEASON_PATTERN,
-    BURNINGSERIES_SERIES_PATTERN,
-    CINEBY_EPISODE_PATTERN,
-    CINEBY_SERIES_PATTERN,
     FILMPALAST_SERIES_PATTERN,
     H0MELAB_EPISODE_PATTERN,
     H0MELAB_SEASON_PATTERN,
     H0MELAB_SERIES_PATTERN,
     HANIME_TV_SERIES_PATTERN,
-    KINOX_SERIES_PATTERN,
     MANGA_FIRE_CHAPTER_PATTERN,
     MANGA_FIRE_SERIES_PATTERN,
     MEGAKINO_SERIES_PATTERN,
@@ -28,20 +22,11 @@ from .models import (
     AniworldEpisode,
     AniworldSeason,
     AniworldSeries,
-    BurningSeriesEpisode,
-    BurningSeriesSeason,
-    BurningSeriesSeries,
-    CinebyEpisode,
-    CinebySeason,
-    CinebySeries,
     FilmoEpisode,
     FilmPalastEpisode,
     HanimeTVEpisode,
     HanimeTVSeason,
     HanimeTVSeries,
-    KinoxEpisode,
-    KinoxSeason,
-    KinoxSeries,
     MangaFireToChapter,
     MangaFireToSeries,
     MegaKinoEpisode,
@@ -51,6 +36,10 @@ from .models import (
     SerienstreamSeason,
     SerienstreamSeries,
 )
+from .models.broadcasters import DMAXEpisode, ZDFEpisode
+from .models.broadcasters.collection import ZDF_COLLECTION_PATTERN, zdf_title
+from .models.broadcasters.dmax import DMAX_COLLECTION_PATTERN, DMAX_PATTERN, dmax_title
+from .models.broadcasters.zdf import ZDF_PATTERN
 from .models.filmo_to.episode import FILMO_EPISODE_PATTERN
 from .models.moflix_stream.client import canonical_title_url
 
@@ -68,6 +57,20 @@ class Provider:
 
 
 PROVIDERS = [
+    Provider(
+        name="ZDF",
+        series_pattern=ZDF_COLLECTION_PATTERN,
+        episode_pattern=ZDF_PATTERN,
+        series_cls=zdf_title,
+        episode_cls=ZDFEpisode,
+    ),
+    Provider(
+        name="DMAX",
+        series_pattern=DMAX_COLLECTION_PATTERN,
+        episode_pattern=DMAX_PATTERN,
+        series_cls=dmax_title,
+        episode_cls=DMAXEpisode,
+    ),
     Provider(
         name="AniWorld",
         series_pattern=H0MELAB_SERIES_PATTERN,
@@ -108,33 +111,6 @@ PROVIDERS = [
         series_cls=FilmPalastEpisode,
         season_cls=None,
         episode_cls=FilmPalastEpisode,
-    ),
-    Provider(
-        name="Kinox",
-        series_pattern=KINOX_SERIES_PATTERN,
-        season_pattern=KINOX_SERIES_PATTERN,
-        episode_pattern=KINOX_SERIES_PATTERN,
-        series_cls=KinoxSeries,
-        season_cls=KinoxSeason,
-        episode_cls=KinoxEpisode,
-    ),
-    Provider(
-        name="BurningSeries",
-        series_pattern=BURNINGSERIES_SERIES_PATTERN,
-        season_pattern=BURNINGSERIES_SEASON_PATTERN,
-        episode_pattern=BURNINGSERIES_EPISODE_PATTERN,
-        series_cls=BurningSeriesSeries,
-        season_cls=BurningSeriesSeason,
-        episode_cls=BurningSeriesEpisode,
-    ),
-    Provider(
-        name="Cineby",
-        series_pattern=CINEBY_SERIES_PATTERN,
-        season_pattern=CINEBY_SERIES_PATTERN,
-        episode_pattern=CINEBY_EPISODE_PATTERN,
-        series_cls=CinebySeries,
-        season_cls=CinebySeason,
-        episode_cls=CinebyEpisode,
     ),
     Provider(
         name="MangaFire",

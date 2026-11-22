@@ -290,7 +290,7 @@ def rendition_languages(master_text, base_url=""):
     can select (``_LANG_PREFIXES``) appear as their own ``#EXT-X-MEDIA:TYPE=AUDIO``
     rendition — matched the exact same way ``_select_audio_rendition`` matches
     them, so "detected as available" and "selectable at download time" never
-    disagree. Used by cineby to decide whether e.g. a German dub exists before
+    disagree. Used to decide whether e.g. a German dub exists before
     offering it.
     """
     _, renditions = _parse_master_playlist(master_text, base_url)
@@ -716,6 +716,7 @@ def download_hls_parallel(
     progress_end=100.0,
     keep_progress=False,
     concurrency=None,
+    strict_audio=False,
 ):
     """Download an HLS stream into local files ready for an FFmpeg remux.
 
@@ -756,6 +757,10 @@ def download_hls_parallel(
             else None
         )
         if rendition is not None:
+            if strict_audio and rendition.language:
+                prefixes = _LANG_PREFIXES.get(preferred_audio_lang, ())
+                if not prefixes or not rendition.language.lower().startswith(prefixes):
+                    raise HLSUnsupported("selected audio language is unavailable")
             audio_playlist = rendition.uri
             logger.debug(
                 f"[HLS] separate audio rendition: {rendition.name or rendition.language}"

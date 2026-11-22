@@ -65,7 +65,6 @@ AUTOSYNC_MODES = ("interval", "cron")
 DEFAULT_AUTOSYNC_INTERVAL_SECONDS = 24 * 60 * 60
 DEFAULT_AUTOSYNC_CRON = "0 3 * * *"
 
-DISCORD_MODES = ("standard", "advanced")
 DISCORD_LANGUAGES = ("en", "de")
 
 # Sent instead of the real token so it never leaves the server.
@@ -74,9 +73,6 @@ SECRET_PLACEHOLDER = "•" * 8
 DISCORD_KEYS = {
     "enabled": "H0MELAB_DISCORD_BOT_ENABLED",
     "token": "H0MELAB_DISCORD_TOKEN",
-    "owner_id": "H0MELAB_DISCORD_OWNER_ID",
-    "mode": "H0MELAB_DISCORD_MODE",
-    "request_role_id": "H0MELAB_DISCORD_REQUEST_ROLE_ID",
     "guild_id": "H0MELAB_DISCORD_GUILD_ID",
     "language": "H0MELAB_DISCORD_LANGUAGE",
     "announce_channel_id": "H0MELAB_DISCORD_ANNOUNCE_CHANNEL_ID",
@@ -204,14 +200,8 @@ def htv_enabled():
     return site_enabled("htv")
 
 
-def burningseries_enabled():
-    """Off by default: the site is geo-blocked and behind Google reCAPTCHA."""
-    return site_enabled("burningseries")
 
 
-def kinox_enabled():
-    """Off by default: every download needs a captcha solved by hand."""
-    return site_enabled("kinox")
 
 
 def english_sub_disabled():
@@ -448,9 +438,6 @@ def discord_settings():
     return {
         "enabled": _flag(DISCORD_KEYS["enabled"]),
         "token_set": bool(os.environ.get(DISCORD_KEYS["token"], "").strip()),
-        "owner_id": os.environ.get(DISCORD_KEYS["owner_id"], ""),
-        "mode": os.environ.get(DISCORD_KEYS["mode"], "standard"),
-        "request_role_id": os.environ.get(DISCORD_KEYS["request_role_id"], ""),
         "guild_id": os.environ.get(DISCORD_KEYS["guild_id"], ""),
         "language": os.environ.get(DISCORD_KEYS["language"], "en"),
         "announce_channel_id": os.environ.get(DISCORD_KEYS["announce_channel_id"], ""),
@@ -470,19 +457,13 @@ def _collect_discord(payload, updates):
         if token != SECRET_PLACEHOLDER:
             updates[DISCORD_KEYS["token"]] = token
 
-    if "mode" in payload:
-        mode = str(payload["mode"]).strip().lower()
-        if mode not in DISCORD_MODES:
-            raise SettingsError(f"Invalid discord mode: {mode}")
-        updates[DISCORD_KEYS["mode"]] = mode
-
     if "language" in payload:
         language = str(payload["language"]).strip().lower()
         if language not in DISCORD_LANGUAGES:
             raise SettingsError(f"Invalid discord language: {language}")
         updates[DISCORD_KEYS["language"]] = language
 
-    for field in ("owner_id", "request_role_id", "guild_id", "announce_channel_id"):
+    for field in ("guild_id", "announce_channel_id"):
         if field in payload:
             value = str(payload[field]).strip()
             if value and not value.isdigit():
@@ -514,6 +495,8 @@ def _persist_settings(updates):
 # Read / write
 # ---------------------------------------------------------------------------
 def read_settings():
+    from . import seerr, jellyfin
+
     return {
         "download_path": str(paths.default_download_path()),
         "media_library_paths": media_library_paths(),
@@ -553,6 +536,8 @@ def read_settings():
         ],
         "discord": discord_settings(),
         "tmdb": tmdb_settings(),
+        "seerr": seerr.settings(),
+        "jellyfin": jellyfin.settings(),
     }
 
 
@@ -716,6 +701,14 @@ def update_settings(data):
     if "tmdb" in data:
         _collect_tmdb(data["tmdb"], updates)
 
+    if "seerr" in data:
+        from .seerr import collect_settings
+        collect_settings(data["seerr"], updates)
+
+    if "jellyfin" in data:
+        from .jellyfin import collect_settings
+        collect_settings(data["jellyfin"], updates)
+
     # Persist first. If the disk is read-only/full, the API must not claim a
     # successful save or leave a runtime-only change that vanishes on restart.
     _persist_settings(updates)
@@ -793,10 +786,7 @@ def _env_sections():
             "Discord bot (the token is not included in this export)",
             [
                 (DISCORD_KEYS["enabled"], _one_or_zero(discord["enabled"])),
-                (DISCORD_KEYS["owner_id"], discord["owner_id"]),
-                (DISCORD_KEYS["mode"], discord["mode"]),
                 (DISCORD_KEYS["language"], discord["language"]),
-                (DISCORD_KEYS["request_role_id"], discord["request_role_id"]),
                 (DISCORD_KEYS["guild_id"], discord["guild_id"]),
                 (DISCORD_KEYS["announce_channel_id"], discord["announce_channel_id"]),
             ],

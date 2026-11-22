@@ -18,8 +18,6 @@ def test_defaults_of_a_fresh_install():
     assert settings["lang_separation"] is False
     assert settings["disable_english_sub"] is False
     assert settings["enable_htv"] is False
-    assert settings["enable_burningseries"] is False
-    assert settings["enable_kinox"] is False
     assert settings["enable_library"] is True, "the library is on unless turned off"
     assert settings["enable_autosync"] is False
     assert settings["movie_folder"] is True
@@ -68,8 +66,6 @@ def test_tmdb_key_is_never_returned_or_exported(monkeypatch):
         ("lang_separation", "H0MELAB_LANG_SEPARATION"),
         ("disable_english_sub", "H0MELAB_DISABLE_ENGLISH_SUB"),
         ("enable_htv", "H0MELAB_ENABLE_HTV"),
-        ("enable_burningseries", "H0MELAB_ENABLE_BURNINGSERIES"),
-        ("enable_kinox", "H0MELAB_ENABLE_KINOX"),
         ("enable_library", "H0MELAB_ENABLE_LIBRARY"),
         ("enable_autosync", "H0MELAB_ENABLE_AUTOSYNC"),
         ("enable_aniworld", "H0MELAB_ENABLE_ANIWORLD"),
@@ -109,31 +105,30 @@ def test_every_site_can_be_switched_off():
 def test_which_sites_a_fresh_install_shows():
     """Sites requiring opt-in stay off."""
     assert settings_store.enabled_sites() == {
+        "zdf": True,
+        "dmax": True,
         "aniworld": True,
         "sto": True,
         "megakino": True,
         "mangafire": True,
         "htv": False,
-        "kinox": False,
-        "burningseries": False,
         "filmpalast": True,
         "filmo": True,
-        "cineby": False,
         "moflix": True,
     }
 
 
 def test_a_site_reads_back_out_of_the_settings():
-    update_settings({"enable_cineby": False})
+    update_settings({"enable_moflix": False})
     settings = settings_store.read_settings()
-    assert settings["enable_cineby"] is False
+    assert settings["enable_moflix"] is False
     assert settings["enable_aniworld"] is True
 
 
 def test_the_page_is_told_which_sites_exist():
     sites = settings_store.read_settings()["available_sites"]
     assert {site["key"] for site in sites} == set(settings_store.enabled_sites())
-    assert {"key": "kinox", "label": "Kinox", "default_on": False} in sites
+    assert {"key": "htv", "label": "Hanime", "default_on": False} in sites
     assert {"key": "aniworld", "label": "AniWorld", "default_on": True} in sites
 
 
@@ -168,10 +163,8 @@ def test_an_unrelated_setting_still_saves_with_every_site_off(monkeypatch):
 
 def test_the_old_helpers_still_answer():
     """pages.py and the templates were built on these three."""
-    update_settings({"enable_htv": True, "enable_kinox": True})
+    update_settings({"enable_htv": True})
     assert settings_store.htv_enabled() is True
-    assert settings_store.kinox_enabled() is True
-    assert settings_store.burningseries_enabled() is False
 
 
 def test_an_unknown_site_is_never_enabled():
@@ -452,8 +445,7 @@ def test_discord_settings_round_trip():
             "discord": {
                 "enabled": True,
                 "token": "a-token",
-                "owner_id": "123",
-                "mode": "advanced",
+                "announce_channel_id": "123",
                 "language": "de",
                 "guild_id": "456",
             }
@@ -463,8 +455,8 @@ def test_discord_settings_round_trip():
     discord = settings_store.discord_settings()
     assert discord["enabled"] is True
     assert discord["token_set"] is True
-    assert discord["owner_id"] == "123"
-    assert discord["mode"] == "advanced"
+    assert discord["announce_channel_id"] == "123"
+    assert "owner_id" not in discord and "mode" not in discord
     assert discord["language"] == "de"
 
 
@@ -485,7 +477,7 @@ def test_the_token_can_be_cleared():
 
 
 @pytest.mark.parametrize(
-    "field", ["owner_id", "request_role_id", "guild_id", "announce_channel_id"]
+    "field", ["guild_id", "announce_channel_id"]
 )
 def test_discord_ids_must_be_numeric(field):
     with pytest.raises(SettingsError) as exc:
@@ -494,16 +486,17 @@ def test_discord_ids_must_be_numeric(field):
 
 
 @pytest.mark.parametrize(
-    "field", ["owner_id", "request_role_id", "guild_id", "announce_channel_id"]
+    "field", ["guild_id", "announce_channel_id"]
 )
 def test_discord_ids_may_be_blank(field):
     update_settings({"discord": {field: ""}})
     assert settings_store.discord_settings()[field] == ""
 
 
-def test_an_invalid_discord_mode_is_refused():
-    with pytest.raises(SettingsError):
-        update_settings({"discord": {"mode": "chaotic"}})
+def test_old_discord_request_settings_are_ignored():
+    update_settings({"discord": {"mode": "advanced", "owner_id": "123", "request_role_id": "456"}})
+    assert not {"mode", "owner_id", "request_role_id"} & settings_store.discord_settings().keys()
+    assert "H0MELAB_DISCORD_MODE" not in os.environ
 
 
 def test_an_invalid_discord_language_is_refused():

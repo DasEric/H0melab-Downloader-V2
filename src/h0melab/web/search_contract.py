@@ -5,16 +5,15 @@ a connector policy rather than a native search filter.
 """
 
 SITE_TYPES = {
+    "zdf": ("movie", "series"),
+    "dmax": ("movie", "series"),
     "aniworld": ("movie", "series"),
     "sto": ("series",),
     "megakino": ("movie", "series"),
     "mangafire": ("manga",),
     "htv": ("series",),
-    "kinox": ("movie", "series"),
-    "burningseries": ("series",),
     "filmpalast": ("movie", "series"),
     "filmo": ("movie", "series"),
-    "cineby": ("movie", "series"),
     "moflix": ("movie", "series"),
 }
 
@@ -24,11 +23,8 @@ BROWSE_PATHS = {
     "megakino": ("api/popular-movies",),
     "mangafire": ("api/mangafire-trending",),
     "htv": ("api/htv-trending",),
-    "kinox": ("api/kinox-movies",),
-    "burningseries": ("api/burningseries-series",),
     "filmpalast": ("api/filmpalast-movies",),
     "filmo": ("api/filmo-movies",),
-    "cineby": ("api/cineby-movies",),
     "moflix": ("api/moflix-movies",),
 }
 
@@ -62,11 +58,6 @@ def media_type(site, item):
             )
             else "movie"
         )
-    if site == "cineby":
-        if "/tv/" in url:
-            return "series"
-        if "/movie/" in url:
-            return "movie"
     types = SITE_TYPES.get(site, ())
     if site in ("filmpalast", "filmo"):
         return "movie"
@@ -87,6 +78,8 @@ def source_capabilities():
             "backend": "video",
             "enabled": bool(enabled.get(site)),
             "browse_paths": list(BROWSE_PATHS.get(site, ())),
+            **({"input_mode": "text_or_url", "text_search": True, "collections": True}
+               if site in ("zdf", "dmax") else {}),
         }
         for site in SITE_ORDER
     ]

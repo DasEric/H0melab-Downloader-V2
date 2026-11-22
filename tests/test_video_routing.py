@@ -8,7 +8,7 @@ import pytest
 
 from h0melab import search
 from h0melab.web import (
-    connector_files,
+    media_files,
     db,
     media_targets,
     sitesearch,
@@ -55,7 +55,7 @@ def flat(monkeypatch):
 
         @property
         def _episode_path(self):
-            return connector_files.episode_path(
+            return media_files.episode_path(
                 self, Path(self.selected_path) / (self.title + ".mkv")
             )
 
@@ -194,7 +194,10 @@ def test_removed_variants_are_not_added_back_on_refresh(client, flat, monkeypatc
     assert len(video_library.active_members(group)) == 2
 
 
-def test_native_queue_routes_and_writes_real_series_structure(client, flat, targets):
+def test_native_queue_routes_and_writes_real_series_structure(client, flat, targets, monkeypatch):
+    from h0melab.web import jellyfin
+    scans = []
+    monkeypatch.setattr(jellyfin, "refresh", lambda kind: scans.append(kind))
     _movie_id, show_id, movies, shows = targets
     client.post("/api/search", json={"keyword": "silo", "site": "filmpalast"})
     client.get("/api/seasons", query_string={"url": flat[0]["url"]})
@@ -228,6 +231,9 @@ def test_native_queue_routes_and_writes_real_series_structure(client, flat, targ
     assert film.status_code == 200
     worker._process(db.get_queue_item(film.get_json()["queue_id"]))
     assert (movies / "A Film (2023)/A Film (2023) - german-dub.mkv").is_file()
+    assert scans == ["series"] * len(flat) + ["movie"]
+    worker._process(db.get_queue_item(film.get_json()["queue_id"]))
+    assert scans == ["series"] * len(flat) + ["movie"]
 
 
 def test_wrong_manual_target_and_forged_type_are_rejected(client, flat, targets):
@@ -276,7 +282,7 @@ def test_queue_rechecks_destination_revision_before_writing(client, flat, target
     assert not list(targets[3].rglob("*.mkv"))
 
 
-def test_media_targets_require_admin_and_are_reported_by_capabilities(
+def test_media_targets_require_admin_and_retired_api_is_absent(
     client, api_key, targets
 ):
     key, _ = api_key("write")
@@ -293,13 +299,9 @@ def test_media_targets_require_admin_and_are_reported_by_capabilities(
         client.get("/api/media-targets", headers=headers).get_json()["enabled"] is True
     )
     key, _ = api_key("admin")
-    capabilities = client.get(
-        "/api/connector/capabilities", headers={"X-API-Key": key}
-    ).get_json()
-    assert (
-        capabilities["video_groups"] == 1
-        and capabilities["media_targets"]["series"] == targets[1]
-    )
+    response = client.get("/api/connector/capabilities", headers={"X-API-Key": key})
+    assert response.status_code == 404
+
 
 
 def test_more_than_500_episodes_keep_one_request_and_bounded_work_sections(
@@ -457,7 +459,7 @@ def test_routed_model_path_bypasses_a_broken_legacy_template(monkeypatch, tmp_pa
     )
     episode._video_identity = video_library.parse_title("SiloS01E01")
     episode._video_root = tmp_path
-    episode._connector_variant = "German Dub"
+    episode._media_variant = "German Dub"
     assert (
         episode._episode_path
         == tmp_path / "Silo/Season 01/Silo - S01E01 - german-dub.mkv"

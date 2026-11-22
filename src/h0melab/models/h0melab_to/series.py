@@ -91,7 +91,8 @@ class AniworldSeries:
     def _html(self):
         if self.__html is None:
             logger.debug(f"fetching ({self.url})...")
-            resp = GLOBAL_SESSION.get(self.url)
+            resp = GLOBAL_SESSION.get(self.url, timeout=15)
+            resp.raise_for_status()
             self.__html = resp.text
         return self.__html
 

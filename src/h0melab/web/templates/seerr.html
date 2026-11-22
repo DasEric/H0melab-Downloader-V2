@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Seerr-Anfragen - H0melab Downloader{% endblock %}
+{% block content %}
+<div class="container">
+  <div class="page-head"><h1>Seerr-Anfragen</h1><button class="btn btn-secondary" id="refreshSeerr">Aktualisieren</button></div>
+  <p class="hint">Nur bestätigte Medienidentitäten werden automatisch verarbeitet. Film- und Serienziele werden zentral unter Einstellungen verwaltet.</p>
+  <p id="seerrError" role="status" aria-live="polite"></p>
+  <div id="seerrRequests"></div>
+  <button type="button" class="btn btn-secondary" id="moreSeerr" hidden>Weitere Anfragen laden</button>
+</div>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='seerr.js') }}?v={{ app_version }}"></script>{% endblock %}

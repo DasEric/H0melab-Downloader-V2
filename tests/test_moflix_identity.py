@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from h0melab.models.moflix_stream import series as moflix
-from h0melab.web import connector_files, db, media_targets, video_library, worker
+from h0melab.web import media_files, db, media_targets, video_library, worker
 from h0melab.web.views import api_media
 
 TITLE_URL = "https://moflix-stream.xyz/titles/42"
@@ -407,11 +407,11 @@ def test_movie_does_not_overwrite_an_existing_file(
 
 
 @pytest.mark.parametrize("listed", [False, True])
-def test_connector_movie_receipt_retains_film_destination(
+def test_retired_connector_movie_contract_is_rejected(
     client, moflix_source, typed_targets, monkeypatch, listed
 ):
     monkeypatch.setattr(
-        connector_files,
+        media_files,
         "media_streams",
         lambda path: [{"codec_type": "audio", "tags": {"language": "deu"}}],
     )
@@ -437,19 +437,10 @@ def test_connector_movie_receipt_retains_film_destination(
             ],
         },
     )
-    assert response.status_code == 200, response.get_json()
-    queue_id = response.get_json()["queue_id"]
-    worker._process(db.get_queue_item(queue_id))
-    result = db.get_queue_item(queue_id)
-    assert result["status"] == "completed", result["errors"]
-    receipts = connector_files.query(["moflix-movie-receipt"])
-    assert len(receipts) == 1
-    assert receipts[0]["media_type"] == "movie"
-    assert receipts[0]["custom_path_id"] == typed_targets[0]
-    assert receipts[0]["state"] == "owned"
-    assert receipts[0]["relative_path"] == (
-        "Sample (2026)/Sample (2026) - german-dub.mkv"
-    )
+    assert response.status_code == 400, response.get_json()
+    assert "retired" in response.get_json()["error"]
+    assert moflix_source["downloads"] == []
+    assert not list(typed_targets[2].rglob("*.mkv"))
     assert not list(typed_targets[3].rglob("*.mkv"))
 
 

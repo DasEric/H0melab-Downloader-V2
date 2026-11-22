@@ -147,7 +147,6 @@
      Each site colours the switch differently. Override one pair to recolour
      a single site:
 
-       --site-kinox-bg: linear-gradient(135deg, #111, #333);
 
      or set the two --site-all-* below to give every site the same colour,
      which is how you turn per-site colouring off:
@@ -165,12 +164,6 @@
   --site-sto-shadow: 0 2px 8px rgba(56, 189, 248, 0.35);
   --site-megakino-bg: linear-gradient(135deg, #ef4444, #b91c1c);
   --site-megakino-shadow: 0 2px 8px rgba(239, 68, 68, 0.35);
-  --site-cineby-bg: linear-gradient(135deg, #22d3ee, #0891b2);
-  --site-cineby-shadow: 0 2px 8px rgba(34, 211, 238, 0.35);
-  --site-kinox-bg: linear-gradient(135deg, #34d399, #059669);
-  --site-kinox-shadow: 0 2px 8px rgba(52, 211, 153, 0.35);
-  --site-burningseries-bg: linear-gradient(135deg, #fb923c, #ea580c);
-  --site-burningseries-shadow: 0 2px 8px rgba(251, 146, 60, 0.35);
   --site-filmpalast-bg: linear-gradient(135deg, #84cc16, #4d7c0f);
   --site-filmpalast-shadow: 0 2px 8px rgba(132, 204, 22, 0.35);
   --site-filmo-bg: linear-gradient(135deg, #d946ef, #a21caf);

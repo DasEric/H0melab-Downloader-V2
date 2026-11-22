@@ -243,7 +243,6 @@ PROVIDER_HEADERS_D = {
         "Origin": "https://voe.sx",
     },
     "LoadX": {"Accept": "*/*"},
-    "Cineby": {"Referer": "https://www.cineby.at/"},
     "Filemoon": {"User-Agent": DEFAULT_USER_AGENT, "Referer": "https://filemoon.to"},
     "Gupload": {"Referer": "https://gupload.xyz/", "Accept-Encoding": "identity"},
     "MoflixClick": {
@@ -278,7 +277,6 @@ PROVIDER_HEADERS_W = {
         "Origin": "https://voe.sx",
     },
     "LoadX": {"Accept": "*/*"},
-    "Cineby": {"Referer": "https://www.cineby.at/"},
     "Filemoon": {"User-Agent": DEFAULT_USER_AGENT, "Referer": "https://filemoon.to"},
     "Gupload": {"Referer": "https://gupload.xyz/", "Accept-Encoding": "identity"},
     "MoflixClick": {
@@ -466,45 +464,6 @@ FILMPALAST_HOST_PATTERN = r"(?:www\.)?filmpalast\.[^/]+"
 
 FILMPALAST_SERIES_PATTERN = re.compile(
     rf"^https?://{FILMPALAST_HOST_PATTERN}/stream/[^/?#]+/?$",
-    re.IGNORECASE,
-)
-
-# The trailing (?:\?[^#]*)? lets per-episode URLs (…?s=1&e=2) resolve too.
-KINOX_SERIES_PATTERN = re.compile(
-    r"^https?://(?:www\.)?kinox[\w.-]*\.[^/]+/Stream/[^/?#]+?(?:\.html)?(?:\?[^#]*)?/?$",
-    re.IGNORECASE,
-)
-
-_CINEBY_HOST = r"(?:www\.)?cineby\.(?:at|app|[a-z]{2,4})"
-
-# /movie/<id> or /tv/<id> (optionally ?s=N for a specific TV season)
-CINEBY_SERIES_PATTERN = re.compile(
-    rf"^https?://{_CINEBY_HOST}/(?:movie|tv)/\d+(?:\?[^#]*)?/?$",
-    re.IGNORECASE,
-)
-
-# /movie/<id> or /tv/<id>/<season>/<episode>
-CINEBY_EPISODE_PATTERN = re.compile(
-    rf"^https?://{_CINEBY_HOST}/(?:movie/\d+|tv/\d+/\d+/\d+)(?:\?[^#]*)?/?$",
-    re.IGNORECASE,
-)
-
-BS_HOST_PATTERN = r"(?:www\.)?(?:burning-series\.(?:io|net)|burningseries\.(?:ac|cx)|bs\.cine\.to|bs\.to)"
-
-BURNINGSERIES_SERIES_PATTERN = re.compile(
-    rf"^https?://{BS_HOST_PATTERN}/serie/[a-zA-Z0-9\-]+(?:\?[^#]*)?/?$",
-    re.IGNORECASE,
-)
-
-# /serie/<slug>/<season>[/<lang>]
-BURNINGSERIES_SEASON_PATTERN = re.compile(
-    rf"^https?://{BS_HOST_PATTERN}/serie/[a-zA-Z0-9\-]+/\d+(?:/[a-z]{{2}})?/?$",
-    re.IGNORECASE,
-)
-
-# /serie/<slug>/<season>/<episode-slug>/<lang>
-BURNINGSERIES_EPISODE_PATTERN = re.compile(
-    rf"^https?://{BS_HOST_PATTERN}/serie/[a-zA-Z0-9\-]+/\d+/[^/]+/[a-z]{{2}}/?$",
     re.IGNORECASE,
 )
 

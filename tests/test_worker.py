@@ -427,3 +427,24 @@ def test_the_queue_order_decides_what_runs_next(queue_item):
     db.move_queue_item(second, "up")
     assert worker._claim_next()["id"] == second
     assert first is not None
+
+
+def test_concurrent_connections_claim_only_one_job(queue_item):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    first = queue_item()
+    queue_item()
+    gate = Barrier(8)
+
+    def claim():
+        gate.wait(timeout=10)
+        return worker._claim_next()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        results = list(pool.map(lambda _: claim(), range(8)))
+    claimed = [row for row in results if row is not None]
+    assert len(claimed) == 1
+    assert claimed[0]['id'] == first
+    assert claimed[0]['status'] == 'running'
+    assert claimed[0]['started_at']

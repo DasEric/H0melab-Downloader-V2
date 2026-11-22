@@ -44,6 +44,7 @@ _register_mime_types()
 
 # Endpoints that must stay reachable without a session.
 _PUBLIC_ENDPOINTS = {
+    "api.seerr_webhook",
     "static",
     "auth.login",
     "auth.logout",

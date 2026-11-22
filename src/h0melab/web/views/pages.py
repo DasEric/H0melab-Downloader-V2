@@ -104,3 +104,8 @@ def settings():
 @bp.route("/upcoming")
 def upcoming():
     return render_template("upcoming.html", providers=WORKING_PROVIDERS)
+
+
+@bp.route("/seerr")
+def seerr_page():
+    return render_template("seerr.html")

@@ -41,13 +41,12 @@
   const BROWSE_REFRESH_MS = 300000;
 
   const SEARCH_PLACEHOLDERS = {
+    zdf: "ZDF: Titel oder Video-/Sendungs-URL / title or URL",
+    dmax: "DMAX: Titel oder Folgen-/Sendungs-URL / title or URL",
     aniworld: "Search AniWorld...",
     sto: "Search SerienStream...",
-    burningseries: "Search BurningSeries...",
     megakino: "Search MegaKino...",
     moflix: "Search Moflix...",
-    cineby: "Search Cineby...",
-    kinox: "Search Kinox...",
     filmpalast: "Search FilmPalast...",
     filmo: "Search Filmo...",
     htv: "Search Hanime...",
@@ -495,7 +494,7 @@
     const forLanguage = availableProviders && availableProviders[languageSelect.value];
     if (forLanguage && forLanguage.length) {
       fillProviderSelect(forLanguage);
-    } else if (!["megakino", "moflix"].includes(currentSite)) {
+    } else if (!["megakino", "moflix", "zdf", "dmax"].includes(currentSite)) {
       fillProviderSelect(window.STATIC_PROVIDERS);
     } else {
       providerSelect.innerHTML = "";
@@ -548,10 +547,10 @@
     const manga = isMangaFire(url);
     languageProviderRow.hidden = hanime || manga;
     mangaFireRow.hidden = !manga;
-    if (subtitleRow) subtitleRow.hidden = currentSite !== "sto";
+    if (subtitleRow) subtitleRow.hidden = !["sto", "zdf"].includes(currentSite);
     if (!hanime && !manga) {
       rebuildLanguageOptions();
-      fillProviderSelect(["megakino", "moflix"].includes(currentSite) ? [] : window.STATIC_PROVIDERS);
+      fillProviderSelect(["megakino", "moflix", "zdf", "dmax"].includes(currentSite) ? [] : window.STATIC_PROVIDERS);
     }
     const customPathsPromise = loadCustomPaths(token, currentSite);
     showAutosyncAction();
@@ -703,6 +702,7 @@
 
   function seasonLabel(season, count) {
     const shown = typeof count === "number" ? count : season.episode_count;
+    if (season.label) return `${season.label}${typeof shown === "number" ? ` (${shown})` : ""}`;
     if (currentSite === "mangafire") {
       return `${t("index.chapter", "Chapter")} ${season.season_number}`;
     }
@@ -826,7 +826,7 @@
         return `
           <div class="episode-item">
             <input type="checkbox" value="${esc(value)}" data-season="${index}"${extra} />
-            <span class="ep-num">${manga ? "P" : "E"}${episode.episode_number}</span>
+            <span class="ep-num">${episode.episode_number == null ? "—" : `${manga ? "P" : "E"}${episode.episode_number}`}</span>
             ${done}
             <div class="ep-main">${title}${renderBadges(episode.available_languages)}</div>
           </div>`;
@@ -928,6 +928,10 @@
       episodeSpinner.classList.add("active");
       await loadAllSeasons();
       episodeSpinner.classList.remove("active");
+      if (["zdf", "dmax"].includes(currentSite) && seasons.some((_, index) => !episodeCache[index])) {
+        showToast(t("index.episodes_failed", "Failed to load episodes."));
+        return;
+      }
     }
 
     const episodes = collectEpisodes(all);
@@ -950,7 +954,7 @@
       language: hanime ? "Japanese" : manga ? "MangaFire" : languageSelect.value,
       provider: hanime ? "HanimeTV" : manga ? "MangaFire" : providerSelect.value
     };
-    if (currentSite === "sto" && subtitleSelect) {
+    if (["sto", "zdf"].includes(currentSite) && subtitleSelect) {
       body.subtitle_language = subtitleSelect.value;
     }
     if (manga) body.mangafire_format = el("mangaFireFormat").value;

@@ -108,8 +108,8 @@ def _prepare_resolution_naming(self):
     if not _naming_template_uses_resolution():
         return
     _set_naming_resolution(self, "unknown")
-    if getattr(self, "_connector_variant", None):
-        # Connector variants never adopt or remux a pre-existing resolution file.
+    if getattr(self, "_media_variant", None):
+        # Media variants never adopt or remux a pre-existing resolution file.
         return
     if self._episode_path.exists():
         return
@@ -131,16 +131,16 @@ def _finalize_resolution_naming(self):
     if not _naming_template_uses_resolution():
         return
     old_path = self._episode_path
-    if getattr(self, "_connector_variant", None):
-        from ...web import connector_files
+    if getattr(self, "_media_variant", None):
+        from ...web import media_files
 
-        self._connector_output = None
+        self._media_output = None
         _set_naming_resolution(self, _read_container_resolution(old_path))
         new_path = self._episode_path
-        self._connector_output = old_path
+        self._media_output = old_path
         if new_path != old_path:
-            connector_files.checked_path(self._connector_root, new_path)
-            with connector_files.file_operation(new_path):
+            media_files.checked_path(self._media_root, new_path)
+            with media_files.file_operation(new_path):
                 if new_path.exists():
                     _set_naming_resolution(self, "unknown")
                     return  # Never replace a different request's existing file.
@@ -149,7 +149,7 @@ def _finalize_resolution_naming(self):
                     old_path, new_path
                 )  # Atomic create-if-absent on the same filesystem.
                 old_path.unlink()
-        self._connector_output = new_path
+        self._media_output = new_path
         return
     _set_naming_resolution(self, _read_container_resolution(old_path))
     new_path = self._episode_path
@@ -1253,7 +1253,7 @@ _HLS_MEDIA_EXTS = (".ts", ".m4s", ".mp4", ".m4a", ".m4v", ".aac", ".mp3", ".mov"
 def _fetch_hls_segment(session, seg_url, headers, hosts, timeout=90):
     """Download one HLS segment, failing over across mirror hosts.
 
-    cineby serves every segment from a rotating pool of mirror hosts that all
+    Some hosts serve every segment from a rotating pool of mirror hosts that all
     return byte-identical content, so a single host's transient failure (e.g. a
     Cloudflare 522 origin timeout) no longer has to abort the whole download — we
     retry the same path on the other mirrors (two passes, short backoff) before
@@ -1291,7 +1291,7 @@ def _hls_uris(playlist, base_url):
 def _download_hls_manual(m3u8_url, headers, temp_ts, label=""):
     """Fetch an HLS media playlist's segments over plain HTTP into `temp_ts`.
 
-    Some hosters (cineby) disguise their segments with non-media extensions
+    Some hosters disguise their segments with non-media extensions
     (`.jpg`, `.css`, `.txt`) served from rotating hosts. Strict FFmpeg builds
     refuse those through the HLS demuxer even with `-allowed_extensions ALL`, so
     we bypass the demuxer entirely: download each segment ourselves (they are
@@ -1710,7 +1710,7 @@ def download(self):
                     "reconnect_streamed": 1,
                     "reconnect_delay_max": 30,  # wait up to 30s for connection recovery
                 }
-                # Cineby (and some other hosters) disguise their HLS segments with
+                # Some hosters disguise their HLS segments with
                 # non-.ts extensions like .jpg; ffmpeg 7+ refuses those by default
                 # ("not in allowed_segment_extensions"), so allow every segment
                 # extension for m3u8 inputs.

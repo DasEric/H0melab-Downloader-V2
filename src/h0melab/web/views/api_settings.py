@@ -56,6 +56,9 @@ def update_settings():
     result = {"ok": True}
     if "tmdb" in data:
         result["tmdb"] = settings_store.tmdb_settings()
+    if "seerr" in data:
+        from ..seerr import settings
+        result["seerr"] = settings()
     return jsonify(result)
 
 

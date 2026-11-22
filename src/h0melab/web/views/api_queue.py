@@ -74,63 +74,10 @@ def start_download():
         return jsonify(
             {"error": "Internal connector markers are not accepted from clients"}
         ), 400
-    if data.get("connector_protocol") is not None:
-        from .. import apikeys
-        from ..auth import get_current_user
-
-        key = apikeys.current()
-        user = get_current_user()
-        if (key is not None and key["scope"] != "admin") or (
-            key is None
-            and current_app.config.get("AUTH_ENABLED", False)
-            and (not user or user["role"] != "admin")
-        ):
-            return jsonify(
-                {"error": "Connector file receipts require full access"}
-            ), 403
-        from .. import connector_files
-
-        if (
-            data["connector_protocol"] != 1
-            or not request_key
-            or not isinstance(episodes, list)
-            or len(episodes) > video_library.MAX_ITEMS
-        ):
-            return jsonify({"error": "Invalid connector download contract"}), 400
-        try:
-            for entry in episodes:
-                if (
-                    not isinstance(entry, dict)
-                    or not isinstance(entry.get("url"), str)
-                    or entry.get("media_type") not in ("movie", "series")
-                ):
-                    raise ValueError("Invalid connector entry")
-                if entry.get("language") == "English Sub" and english_sub_disabled():
-                    return jsonify({"error": "English Sub downloads are disabled"}), 403
-                if entry.get("language") not in (
-                    "German Dub",
-                    "English Dub",
-                    "German Sub",
-                    "English Sub",
-                    "Japanese",
-                ):
-                    raise ValueError("Unknown audio/subtitle variant")
-                if (
-                    not isinstance(entry.get("provider"), str)
-                    or not entry["provider"]
-                    or len(entry["provider"]) > 100
-                ):
-                    raise ValueError("Invalid provider")
-                root = connector_files.root_for(entry.get("custom_path_id"))
-                if str(root) != entry.get("target_root") or not root.is_dir():
-                    raise ValueError("Download root changed or disappeared")
-                entry["connector_protocol"] = 1
-        except (ValueError, TypeError):
-            return jsonify(
-                {
-                    "error": "Connector target or variant is invalid; refresh the selection"
-                }
-            ), 409
+    if "connector_protocol" in data:
+        return jsonify(
+            {"error": "The retired request protocol is no longer supported; use Seerr"}
+        ), 400
 
     language = data.get("language", "German Dub")
     if language == "English Sub" and english_sub_disabled():
@@ -149,9 +96,14 @@ def start_download():
     is_serienstream = is_sto_host(data.get("series_url", "")) or is_sto_host(
         str(sample_url)
     )
-    if subtitle_language != "none" and not is_serienstream:
+    from ...models.broadcasters.zdf import ZDF_PATTERN
+
+    is_zdf = bool(ZDF_PATTERN.fullmatch(str(sample_url)))
+    if subtitle_language != "none" and not (is_serienstream or is_zdf):
         return jsonify(
-            {"error": "Soft subtitles are currently supported only for SerienStream"}
+            {
+                "error": "Soft subtitles are currently supported only for SerienStream and ZDF"
+            }
         ), 400
     if provider == "MangaFire":
         episodes = _tag_mangafire(episodes, data.get("mangafire_format"))
@@ -165,13 +117,6 @@ def start_download():
                 identity = video_library.inspect(
                     entry["url"], entry.get("language", language)
                 )
-                if (
-                    entry.get("connector_protocol") == 1
-                    and entry["media_type"] != identity["media_type"]
-                ):
-                    raise ValueError(
-                        "The source changed the movie/show type; reopen this title"
-                    )
                 chosen = entry.get("custom_path_id", data.get("custom_path_id"))
                 target, root, revision = media_targets.resolve(
                     identity["media_type"], chosen, entry.get("target_root")
@@ -209,11 +154,7 @@ def start_download():
         custom_path_id=data.get("custom_path_id"),
         request_key=request_key or None,
         active_request_key=native_key,
-        payload_version=3
-        if routed
-        else 2
-        if data.get("connector_protocol") == 1
-        else 1,
+        payload_version=3 if routed else 1,
     )
     worker.ensure_started()
     return jsonify(
@@ -342,7 +283,7 @@ def move_item(queue_id):
 
 
 def retry_item(queue_id):
-    """Re-queue a failed or cancelled item, e.g. after solving the kinox captcha."""
+    """Re-queue a failed or cancelled item after its failure has been addressed."""
     if not db.requeue_item(queue_id):
         return jsonify({"error": "Item not found or not retryable"}), 400
     worker.ensure_started()

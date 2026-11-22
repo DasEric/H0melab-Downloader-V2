@@ -33,7 +33,7 @@ def _detect_working_providers():
 
 
 WORKING_PROVIDERS = _detect_working_providers()
-_PROVIDER_BY_LOWER = {p.lower(): p for p in WORKING_PROVIDERS}
+_PROVIDER_BY_LOWER = {p.lower(): p for p in (*WORKING_PROVIDERS, "ZDF", "DMAX")}
 
 
 # ---------------------------------------------------------------------------
@@ -41,30 +41,28 @@ _PROVIDER_BY_LOWER = {p.lower(): p for p in WORKING_PROVIDERS}
 # ---------------------------------------------------------------------------
 # Site keys the front-end uses. Custom paths can be the default for any of them.
 SITE_KEYS = (
+    "zdf",
+    "dmax",
     "aniworld",
     "sto",
     "megakino",
     "mangafire",
     "htv",
-    "kinox",
-    "burningseries",
     "filmpalast",
     "filmo",
-    "cineby",
     "moflix",
 )
 
 SITE_LABELS = {
+    "zdf": "ZDF",
+    "dmax": "DMAX",
     "aniworld": "AniWorld",
     "sto": "SerienStream",
     "megakino": "MegaKino",
     "mangafire": "MangaFire",
     "htv": "Hanime",
-    "kinox": "Kinox",
-    "burningseries": "BurningSeries",
     "filmpalast": "FilmPalast",
     "filmo": "Filmo",
-    "cineby": "Cineby",
     "moflix": "Moflix",
 }
 
@@ -73,20 +71,19 @@ SITE_LABELS = {
 SITE_ORDER = (
     "aniworld",
     "sto",
-    "burningseries",
     "megakino",
-    "cineby",
     "moflix",
-    "kinox",
     "filmpalast",
     "filmo",
+    "zdf",
+    "dmax",
     "htv",
     "mangafire",
 )
 
 # Sites nobody gets unless they ask: adult content, or a site that cannot be
 # used without work on the user's side. Every other site starts on.
-SITES_OFF_BY_DEFAULT = frozenset({"htv", "burningseries", "kinox", "cineby"})
+SITES_OFF_BY_DEFAULT = frozenset({"htv"})
 
 
 def normalize_default_sites(value):

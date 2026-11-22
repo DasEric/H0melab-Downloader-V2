@@ -9,11 +9,12 @@ from flask import Blueprint
 from . import (
     api_autosync,
     api_catalog,
-    api_connector,
+    api_media_targets,
     api_keys,
     api_library,
     api_media,
     api_queue,
+    api_seerr,
     api_settings,
     api_upcoming,
     pages,
@@ -21,11 +22,13 @@ from . import (
 
 # Endpoints that need an admin account rather than just a login.
 ADMIN_ENDPOINTS = {
+    "api.seerr_retry",
+    "api.seerr_review",
+    "pages.seerr_page",
+    "api.seerr_test",
+    "api.seerr_status",
+    "api.seerr_requests",
     "api.media_targets_save",
-    "api.connector_capabilities",
-    "api.connector_artifacts",
-    "api.connector_delete",
-    "api.connector_path_probe",
     "pages.settings",
     "api.get_settings",
     "api.update_settings",
@@ -76,8 +79,9 @@ def register_blueprints(app):
     for module in (
         api_media,
         api_catalog,
-        api_connector,
+        api_media_targets,
         api_queue,
+        api_seerr,
         api_settings,
         api_library,
         api_autosync,

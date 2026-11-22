@@ -1,32 +1,6 @@
 import pytest
 
-from h0melab.models.burningseries import series as bs
 from h0melab.models.filmpalast_to import FilmPalastEpisode
-
-
-@pytest.mark.parametrize(
-    "base",
-    ["", "/"]
-    + [
-        f"{scheme}://{prefix}{host}/"
-        for host in bs._BS_HOSTS
-        for scheme in ("http", "https")
-        for prefix in ("", "www.")
-    ],
-)
-def test_burningseries_mirror_links(monkeypatch, base):
-    show = bs.BurningSeriesSeries("https://bs.cine.to/serie/from")
-    show._BurningSeriesSeries__html = f'<a href="{base}serie/from/2/de">2</a>'
-    assert [season.season_number for season in show.seasons] == [2]
-    page = (
-        '<table class="episodes"><tr><td>'
-        f'<a href="{base}serie/from/2/1-title/de">Episode</a>'
-        "</td></tr></table>"
-    )
-    monkeypatch.setattr(bs, "bs_get_with_fallback", lambda *args: page)
-    assert show.seasons[0]._episode_rows("de") == [
-        ("serie/from/2/1-title/de", 2, "1-title")
-    ]
 
 
 @pytest.mark.parametrize(
@@ -49,17 +23,100 @@ def test_filmpalast_genre_links(base):
     assert movie.genres == ["Action", "Drama"]
 
 
-def test_burningseries_rejects_unrelated_absolute_links(monkeypatch):
-    show = bs.BurningSeriesSeries("https://bs.cine.to/serie/from")
-    show._BurningSeriesSeries__html = (
-        '<a href="https://example.org/serie/from/9/de">9</a>'
-    )
-    assert [season.season_number for season in show.seasons] == [1]
-    monkeypatch.setattr(
-        bs,
-        "bs_get_with_fallback",
-        lambda *args: (
-            '<table class="episodes"><td><a href="https://example.org/serie/from/1/1-title/de">Wrong</a></td></table>'
-        ),
-    )
-    assert show.seasons[0]._episode_rows("de") == []
+@pytest.mark.parametrize("kind", ["aniworld", "filmpalast", "megakino"])
+@pytest.mark.parametrize("failure", ["http", "timeout"])
+def test_hoster_redirect_failure_does_not_poison_cache(monkeypatch, kind, failure):
+    from h0melab.config import GLOBAL_SESSION
+    from h0melab.models.h0melab_to.episode import AniworldEpisode
+    from h0melab.models.megakino.series import MegaKinoEpisode
+
+    cls = {
+        "aniworld": AniworldEpisode,
+        "filmpalast": FilmPalastEpisode,
+        "megakino": MegaKinoEpisode,
+    }[kind]
+    model = object.__new__(cls)
+    prefix = "_" + cls.__name__ + "__"
+    setattr(model, prefix + "provider_url", None)
+    setattr(model, prefix + "redirect_url", "https://source.example/redirect/1")
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            if len(calls) == 1:
+                raise RuntimeError("503 upstream")
+
+        @property
+        def url(self):
+            assert len(calls) > 1, "Failed response URL must not be cached"
+            return "https://hoster.example/video"
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        if len(calls) == 1 and failure == "timeout":
+            raise TimeoutError("upstream timeout")
+        return Response()
+
+    monkeypatch.setattr(GLOBAL_SESSION, "get", get)
+    with pytest.raises((RuntimeError, TimeoutError)):
+        _ = model.provider_url
+    assert model.provider_url == "https://hoster.example/video"
+    assert model.provider_url == "https://hoster.example/video"
+    assert calls == [("https://source.example/redirect/1", {"timeout": 15})] * 2
+
+
+def test_aniworld_invalid_redirect_is_revalidated_each_time(monkeypatch):
+    from h0melab.config import GLOBAL_SESSION
+    from h0melab.models.h0melab_to.episode import AniworldEpisode
+    from types import SimpleNamespace
+
+    model = object.__new__(AniworldEpisode)
+    model._AniworldEpisode__provider_url = None
+    model._AniworldEpisode__redirect_url = "https://aniworld.to/redirect/1"
+    model._AniworldEpisode__selected_provider = "VOE"
+    calls = []
+
+    def get(url, **kwargs):
+        calls.append(url)
+        return SimpleNamespace(raise_for_status=lambda: None, url=url)
+
+    monkeypatch.setattr(GLOBAL_SESSION, "get", get)
+    for _ in range(2):
+        with pytest.raises(ValueError, match="Failed to resolve provider URL"):
+            _ = model.provider_url
+        assert model._AniworldEpisode__provider_url is None
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("failure", ["http", "timeout"])
+def test_filmpalast_metadata_failure_is_not_cached(monkeypatch, failure):
+    from h0melab.config import GLOBAL_SESSION
+
+    model = FilmPalastEpisode("https://filmpalast.to/stream/example")
+    calls = []
+
+    class Response:
+        def raise_for_status(self):
+            if len(calls) == 1:
+                raise RuntimeError("503 upstream")
+
+        @property
+        def text(self):
+            assert len(calls) > 1, "Failed metadata must not be consumed"
+            return "<html>verified metadata</html>"
+
+    def get(url, **kwargs):
+        calls.append((url, kwargs))
+        assert kwargs.get("timeout") == 15
+        assert kwargs["headers"]["Accept-Encoding"] == "gzip, deflate"
+        if len(calls) == 1 and failure == "timeout":
+            raise TimeoutError("metadata timeout")
+        return Response()
+
+    monkeypatch.setattr(GLOBAL_SESSION, "get", get)
+    with pytest.raises((RuntimeError, TimeoutError)):
+        _ = model._html
+    assert model._FilmPalastEpisode__html is None
+    assert model._html == "<html>verified metadata</html>"
+    assert model._html == "<html>verified metadata</html>"
+    assert len(calls) == 2

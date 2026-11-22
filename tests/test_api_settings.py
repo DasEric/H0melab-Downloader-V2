@@ -454,10 +454,10 @@ def test_the_settings_page_no_longer_warns_about_restart_resets(client):
 def test_the_export_holds_what_is_running(client):
     client.put(
         "/api/settings",
-        json={"enable_kinox": True, "ui_language": "de", "autosync_interval": "6h"},
+        json={"enable_htv": True, "ui_language": "de", "autosync_interval": "6h"},
     )
     body = client.get("/api/settings/env").get_data(as_text=True)
-    assert "H0MELAB_ENABLE_KINOX=1" in body
+    assert "H0MELAB_ENABLE_HTV=1" in body
     assert "H0MELAB_UI_LANGUAGE=de" in body
     assert "H0MELAB_AUTOSYNC_INTERVAL=6h" in body
 

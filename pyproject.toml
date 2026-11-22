@@ -1,6 +1,6 @@
 [project]
 name = "h0melab-downloader"
-version = "2.3.1"
+version = "2.4.0"
 authors = [{ name = "DasEric" }]
 maintainers = [{ name = "DasEric" }]
 description = "Browser-based downloader and media automation hub for a homelab."
@@ -35,7 +35,7 @@ sso = [
   "authlib",                                                                  # >=3.10
 ]
 discord = [
-  "discord.py",                                                               # optional Discord request bot
+  "discord.py",                                                               # optional Discord notification transport
 ]
 test = [
   "pytest",

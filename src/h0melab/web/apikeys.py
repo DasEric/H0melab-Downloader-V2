@@ -57,6 +57,9 @@ def authenticate(admin_endpoints):
     if not request.path.startswith("/api/"):
         return None
 
+    if request.endpoint == "api.seerr_webhook":
+        return None  # Dedicated secret; a normal API key cannot authorize ingress.
+
     raw = _from_request()
     if not raw:
         return None

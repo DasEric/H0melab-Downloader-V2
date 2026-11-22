@@ -325,7 +325,9 @@ class FilmPalastEpisode:
     @property
     def provider_url(self):
         if self.__provider_url is None:
-            self.__provider_url = GLOBAL_SESSION.get(self.redirect_url).url
+            response = GLOBAL_SESSION.get(self.redirect_url, timeout=15)
+            response.raise_for_status()
+            self.__provider_url = response.url
         return self.__provider_url
 
     @property
@@ -385,7 +387,7 @@ class FilmPalastEpisode:
 
     @property
     def _episode_path(self):
-        from ...web.connector_files import routed_episode_path
+        from ...web.media_files import routed_episode_path
 
         if (routed := routed_episode_path(self)) is not None:
             return routed
@@ -393,7 +395,7 @@ class FilmPalastEpisode:
             self.__episode_path = (
                 self._folder_path / f"{self._file_name}.{self._file_extension}"
             )
-        from ...web.connector_files import episode_path
+        from ...web.media_files import episode_path
 
         return episode_path(self, self.__episode_path)
 
@@ -419,7 +421,9 @@ class FilmPalastEpisode:
                     "Accept-Encoding": "gzip, deflate",
                     "Referer": "https://filmpalast.to/",
                 },
+                timeout=15,
             )
+            resp.raise_for_status()
             self.__html = resp.text
         return self.__html
 

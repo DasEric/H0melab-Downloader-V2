@@ -82,7 +82,7 @@ def test_case_and_whitespace_do_not_matter():
 
 
 def test_a_csv_string_works_too():
-    assert media.normalize_default_sites("aniworld,kinox") == "aniworld,kinox"
+    assert media.normalize_default_sites("aniworld,sto") == "aniworld,sto"
 
 
 @pytest.mark.parametrize("empty", [None, "", [], "   "])
@@ -268,8 +268,8 @@ def test_only_implemented_providers_are_offered():
 # ---------------------------------------------------------------------------
 # Site tabs that can be switched off
 # ---------------------------------------------------------------------------
-def test_burningseries_and_kinox_are_hidden_by_default(client):
-    """Both need a captcha nobody can solve for you, so they are opt in."""
+def test_retired_provider_tabs_are_absent(client):
+    """Retired providers are absent, without affecting retained neighbours."""
     body = client.get("/").get_data(as_text=True)
     assert 'data-site="burningseries"' not in body
     assert 'data-site="kinox"' not in body
@@ -280,21 +280,8 @@ def test_burningseries_and_kinox_are_hidden_by_default(client):
     assert 'data-site="filmpalast"' in body
 
 
-def test_the_flags_bring_the_tabs_back(client, monkeypatch):
-    monkeypatch.setenv("H0MELAB_ENABLE_BURNINGSERIES", "1")
-    monkeypatch.setenv("H0MELAB_ENABLE_KINOX", "1")
-    body = client.get("/").get_data(as_text=True)
-    assert 'data-site="burningseries"' in body
-    assert 'data-site="kinox"' in body
-    assert 'data-row="burningseries_series"' in body
-    assert 'data-row="kinox_movies"' in body
 
 
-def test_one_flag_does_not_turn_on_the_other(client, monkeypatch):
-    monkeypatch.setenv("H0MELAB_ENABLE_KINOX", "1")
-    body = client.get("/").get_data(as_text=True)
-    assert 'data-site="kinox"' in body
-    assert 'data-site="burningseries"' not in body
 
 
 def test_hiding_a_tab_leaves_its_neighbours_alone(client):

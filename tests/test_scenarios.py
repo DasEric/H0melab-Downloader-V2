@@ -507,10 +507,10 @@ def test_a_site_switched_off_loses_its_browse_rows(client, monkeypatch):
 
 
 def test_a_site_switched_on_gains_its_tab_and_rows(client, monkeypatch):
-    monkeypatch.setenv("H0MELAB_ENABLE_KINOX", "1")
+    monkeypatch.setenv("H0MELAB_ENABLE_HTV", "1")
     body = client.get("/").get_data(as_text=True)
-    assert "kinox" in _tabs(client)
-    assert 'data-row="kinox_movies"' in body
+    assert "htv" in _tabs(client)
+    assert 'data-row="htv_trending"' in body
 
 
 def test_the_first_tab_is_whatever_is_still_there(client, monkeypatch):

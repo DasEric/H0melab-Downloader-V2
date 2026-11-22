@@ -42,9 +42,6 @@ def _exact_hit(item):
             continue
         for readable in titles:
             for hit in sitesearch.search(site, readable):
-                direct = rf"/{'tv' if media_type == 'tv' else 'movie'}/{item['tmdb_id']}(?:[/?#]|$)"
-                if site == "cineby" and re.search(direct, hit["url"]):
-                    return hit
                 if _normalise(hit.get("title")) not in aliases:
                     continue
                 try:
@@ -69,14 +66,7 @@ def _usable_provider(url, language, preferred):
 
     resolved = resolve_provider(url)
     episode = resolved.episode_cls(url=url, selected_language=language)
-    if resolved.name == "Cineby":
-        available = (
-            ["Cineby"]
-            if language in getattr(episode, "available_language_labels", ())
-            else []
-        )
-    else:
-        available = media.provider_map(episode.provider_data).get(language, [])
+    available = media.provider_map(episode.provider_data).get(language, [])
     if preferred in available:
         return preferred
     return available[0] if available else None

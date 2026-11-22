@@ -1,5 +1,20 @@
 # Changes
 
+## 2.4.0
+
+- Add configurable, type-verified Jellyfin library refresh after newly completed movie/episode files; scan failures do not fail downloads.
+- Replace the legacy request connector with authenticated Seerr webhooks, durable request IDs and the existing download queue.
+- Add TMDB/IMDb identity validation, conservative provider matching, manual review and explicit episode mapping.
+- Revoke stale manual approvals after provider evidence changes and allow explicit re-review of refreshed candidates on the same queue item.
+- Reuse central movie/show targets with canonical Seerr filenames and identity receipts; preserve native download layouts.
+- Add Seerr settings and request administration; retain Discord as a notification-only integration.
+- Remove BurningSeries, Kinox and Cineby support while retaining the other providers.
+- Archive exclusive legacy connector records without removing download history or media files.
+- Make queue claims transactional across concurrent SQLite connections.
+- Synchronize Seerr pause, resume and immediate cancellation atomically; recover stranded running work after temporary database write failures.
+- Add request-history pagination and byte progress; preserve unknown existing files for manual review.
+- Bound Aniworld metadata and supported hoster-redirect requests with timeouts and HTTP status checks; avoid caching failed redirects.
+
 ## 2.3.0
 
 - Group FilmPalast/Filmo episode-page results into durable source-scoped shows with real URL anchors, separate seasons and provider/language variants. Opening a show follows verified pagination rather than assuming the first result page is complete.

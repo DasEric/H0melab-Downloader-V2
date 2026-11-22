@@ -6,9 +6,9 @@ here still turns CI red rather than hiding until someone runs a check by hand.
 
 One file per source site lives next to this one:
 
-    tests/test_providers_h0melab.py        tests/test_providers_kinox.py
-    tests/test_providers_serienstream.py   tests/test_providers_burningseries.py
-    tests/test_providers_megakino.py       tests/test_providers_cineby.py
+    tests/test_providers_h0melab.py
+    tests/test_providers_serienstream.py
+    tests/test_providers_megakino.py
     tests/test_providers_filmpalast.py     tests/test_providers_hanimetv.py
     tests/test_providers_mangafire.py
 

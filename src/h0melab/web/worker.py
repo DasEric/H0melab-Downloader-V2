@@ -29,26 +29,33 @@ def ensure_started():
         if _started:
             return
         _started = True
-    db.reset_stale_running()
-    threading.Thread(target=_run, name="h0melab-queue", daemon=True).start()
+        try:
+            threading.Thread(target=_run, name="h0melab-queue", daemon=True).start()
+        except Exception:
+            _started = False
+            raise
 
 
 def _claim_next():
-    """Take the next queued item and mark it running, or None if busy/empty."""
-    if db.get_running():
-        return None
-    item = db.get_next_queued()
-    if not item:
-        return None
-    try:
-        db.set_queue_status(item["id"], "running")
-    except Exception:
-        logger.exception("Could not mark queue item %s as running", item["id"])
-        return None
-    return item
+    """Claim atomically, including the existing single-worker busy check."""
+    return db.claim_next_queued()
 
 
 def _run():
+    # Standby processes never reset another worker's rows. Kernel ownership is
+    # released even after an unclean process death, so a standby can recover.
+    while True:
+        try:
+            with db.worker_ownership() as acquired:
+                if acquired:
+                    db._reset_stale_running_owned()
+                    _run_owned()
+        except Exception:
+            logger.error("Queue worker ownership/recovery failed; retrying")
+        time.sleep(IDLE_SECONDS)
+
+
+def _run_owned():
     while True:
         item = None
         try:
@@ -58,12 +65,25 @@ def _run():
                 continue
             _process(item)
         except Exception:
-            logger.exception("Queue worker error")
+            if item and item.get("source") == "seerr":
+                logger.error("Seerr worker failed for queue item %s", item["id"])
+            else:
+                logger.exception("Queue worker error")
             if item:
                 try:
-                    db.set_queue_status(item["id"], "failed")
+                    if item.get("source") == "seerr":
+                        from . import seerr_files
+                        from .seerr_processing import stopped
+                        current = db.get_queue_item(item["id"])
+                        # A notification failure after commit must not undo completion.
+                        if current and current["status"] == "running" and not stopped(item):
+                            seerr_files.finish(item, "failed")
+                    else:
+                        db.set_queue_status(item["id"], "failed")
                 except Exception:
-                    pass
+                    # Release ownership so the outer loop can recover a stranded
+                    # running row once the database becomes available again.
+                    raise
             time.sleep(IDLE_SECONDS)
 
 
@@ -99,7 +119,7 @@ def _build_episode(url, extra, item, selected_path):
         except Exception:
             series = None
         kwargs["format"] = extra["_format"]
-    if provider.name == "SerienStream":
+    if provider.name in ("SerienStream", "ZDF", "DMAX"):
         kwargs["selected_subtitle_language"] = item.get("subtitle_language") or "none"
 
     # MegaKino episodes build their own series context internally
@@ -113,69 +133,51 @@ def _build_episode(url, extra, item, selected_path):
     return provider, provider.episode_cls(**kwargs)
 
 
-def _captcha_hint(provider, error):
-    """Kinox guards downloads with a captcha every visitor gets.
-
-    Attach the title page so the UI can offer a "solve it, then retry" button.
-    """
-    try:
-        from ..models.kinox.series import KINOX_CAPTCHA_MARKER, kinox_captcha_page_url
-
-        if provider and provider.name == "Kinox" and KINOX_CAPTCHA_MARKER in str(error):
-            return kinox_captcha_page_url
-    except Exception:
-        pass
-    return None
-
-
 def _process(item):
     from ..playwright import captcha
 
     queue_id = item["id"]
+    if item.get("source") == "legacy_review":
+        raise ValueError("Retired request: review and submit this media through Seerr")
+    if item.get("source") == "seerr":
+        from . import seerr
+        if not seerr.prepare(item):
+            return
     entries = json.loads(item["episodes"])
     if item.get("source") == "catalog":
         return _process_catalog(item, entries)
     selected_path = paths.target_path(item["language"], item.get("custom_path_id"))
     errors = []
+    all_existing = True
 
     start_index = max(0, min(int(item.get("current_episode") or 0), len(entries)))
     for index, entry in _queued_entries(entries, start_index):
         url, extra = _episode_request(entry)
         provider = None
         try:
+            if item.get("source") == "seerr":
+                from .seerr_processing import stopped
+                if stopped(item):
+                    return
             if db.queue_control_flags(queue_id)[2]:
                 db.finish_pause(queue_id)
                 return
             db.update_queue_progress(queue_id, index, url)
+            if item.get("source") == "seerr":
+                from . import seerr_files
+                if seerr_files.existing(entry):
+                    db.update_queue_progress(queue_id, index + 1, "")
+                    continue
+                if entry.get("_receipt_only"):
+                    from .seerr_processing import review
+                    review(item, "Previously verified episode disappeared; retry to resolve its source")
+                    return
             entry_options = dict(item)
-            connector_entry = (
-                isinstance(entry, dict)
-                and entry.get("connector_protocol") == 1
-                and item.get("payload_version") in (2, 3)
-                and item.get("request_key")
-            )
             entry_path = selected_path
-            if connector_entry:
-                from . import connector_files
-
-                entry_options.update(
-                    {
-                        key: entry[key]
-                        for key in (
-                            "language",
-                            "provider",
-                            "media_type",
-                            "custom_path_id",
-                        )
-                        if key in entry
-                    }
-                )
-                root = connector_files.root_for(entry_options.get("custom_path_id"))
-                if str(root) != entry.get("target_root"):
-                    raise ValueError("Configured connector target has changed")
-                entry_path = str(root)
             provider, episode = _build_episode(url, extra, entry_options, entry_path)
-            if media_targets.read()["enabled"] and provider.name != "MangaFire":
+            if item.get("source") == "seerr":
+                pass  # Seerr applies its canonical layout and fresh targets below.
+            elif media_targets.read()["enabled"] and provider.name != "MangaFire":
                 stored = (
                     entry.get("_media_identity")
                     if isinstance(entry, dict) and item.get("payload_version") == 3
@@ -224,11 +226,9 @@ def _process(item):
                 episode.selected_path = str(video_root)
                 episode._video_identity = identity
                 episode._video_root = video_root
-                episode._connector_variant = entry_options["language"]
-                episode._connector_root = video_root
+                episode._media_variant = entry_options["language"]
+                episode._media_root = video_root
                 entry_options["media_type"] = identity["media_type"]
-                if connector_entry:
-                    root = video_root
             elif (group := video_library.by_url(url)) is not None:
                 episode._video_identity = {
                     **group,
@@ -249,56 +249,50 @@ def _process(item):
             # Tells the captcha module to stream its browser into this queue item
             captcha._local.queue_id = queue_id
             try:
-                if connector_entry:
-                    episode._connector_variant = entry_options["language"]
-                    episode._connector_root = root
-                    output = connector_files.checked_path(root, episode._episode_path)
-                    if getattr(episode, "_video_identity", None):
-                        video_library.reserve_output(output, episode._video_identity)
-                    with connector_files.file_operation(output):
-                        existed = output.exists()
-                        # Never remux or overwrite another request's existing file.
-                        if not existed:
+                refresh_kind = None
+                if item.get("source") == "seerr":
+                    from .seerr_processing import stopped
+                    if stopped(item):
+                        return
+                    from . import seerr_files
+                    existed = seerr_files.download(item, entry, episode)
+                    if existed is None:
+                        return
+                    all_existing = existed and all_existing
+                    if not existed:
+                        refresh_kind = entry["_seerr_identity"]["media_type"]
+                elif getattr(episode, "_video_identity", None):
+                    from . import media_files
+
+                    output = media_files.checked_path(
+                        episode._video_root, episode._episode_path
+                    )
+                    video_library.reserve_output(output, episode._video_identity)
+                    with media_files.file_operation(output):
+                        if not output.exists():
                             output.parent.mkdir(parents=True, exist_ok=True)
                             episode.download()
-                        connector_files.record(
-                            item,
-                            index,
-                            episode._episode_path,
-                            root,
-                            existed,
-                            entry_options,
-                        )
-                        if (
-                            connector_files.audio_matches(
-                                connector_files.media_streams(episode._episode_path),
-                                entry_options["language"],
-                            )
-                            is False
-                        ):
-                            raise ValueError(
-                                "Downloaded audio does not match the requested language"
-                            )
+                            if output.is_file() and output.stat().st_size > 0:
+                                refresh_kind = episode._video_identity["media_type"]
                 else:
-                    if getattr(episode, "_video_identity", None):
-                        from . import connector_files
-
-                        output = connector_files.checked_path(
-                            episode._video_root, episode._episode_path
-                        )
-                        video_library.reserve_output(output, episode._video_identity)
-                        with connector_files.file_operation(output):
-                            if not output.exists():
-                                output.parent.mkdir(parents=True, exist_ok=True)
-                                episode.download()
-                    else:
-                        episode.download()
+                    episode.download()
+                if refresh_kind:
+                    from . import jellyfin
+                    jellyfin.refresh(refresh_kind)
             finally:
                 captcha._local.queue_id = None
                 clear_episode_download_context()
         except Exception as exc:
             captcha._local.queue_id = None
             from ..models.common.common import DownloadPaused
+
+            if item.get("source") == "seerr":
+                from .seerr_matching import IdentityReviewRequired
+                if isinstance(exc, IdentityReviewRequired):
+                    from .seerr_processing import review
+                    db.update_queue_progress(queue_id, index, "")
+                    review(item, str(exc))
+                    return
 
             if isinstance(exc, DownloadPaused):
                 logger.info("Download paused for queue item %s", queue_id)
@@ -310,11 +304,13 @@ def _process(item):
             if db.cancel_flags(queue_id)[1]:
                 logger.info("Download of %s stopped by force cancel", url)
             else:
-                logger.error("Download failed for %s: %s", url, exc)
-                failure = {"url": url, "error": str(exc)}
-                page_url = _captcha_hint(provider, exc)
-                if page_url:
-                    failure["captcha_url"] = page_url(url)
+                if item.get("source") == "seerr":
+                    # Provider exceptions can contain signed stream URLs or credentials.
+                    logger.error("Seerr download failed for queue item %s", queue_id)
+                    failure = {"error": "Download or source verification failed; review the request and retry"}
+                else:
+                    logger.error("Download failed for %s: %s", url, exc)
+                    failure = {"url": url, "error": str(exc)}
                 errors.append(failure)
                 db.update_queue_errors(queue_id, errors)
 
@@ -334,20 +330,28 @@ def _process(item):
             db.update_queue_progress(queue_id, done, "")
             # asking to stop after the last episode still leaves everything on disk
             everything_done = not forced and done >= len(entries) and not errors
-            db.set_queue_status(
-                queue_id, "completed" if everything_done else "cancelled"
-            )
+            if item.get("source") != "seerr":
+                db.set_queue_status(
+                    queue_id, "completed" if everything_done else "cancelled"
+                )
             if item.get("source") == "upcoming":
                 db.finish_upcoming_queue(
                     queue_id, "completed" if everything_done else "cancelled"
                 )
+            if item.get("source") == "seerr":
+                from . import seerr_files
+                seerr_files.finish(item, "completed" if everything_done else "cancelled", all_existing)
             if everything_done and item.get("source") == "discord":
                 _notify_discord(item)
             return
 
     db.update_queue_progress(queue_id, len(entries), "")
-    status = "failed" if errors and len(errors) == len(entries) else "completed"
-    db.set_queue_status(queue_id, status)
+    status = "failed" if errors and (item.get("source") == "seerr" or len(errors) == len(entries)) else "completed"
+    if item.get("source") != "seerr":
+        db.set_queue_status(queue_id, status)
+    if item.get("source") == "seerr":
+        from . import seerr_files
+        seerr_files.finish(item, status, all_existing)
 
     if item.get("source") == "upcoming":
         db.finish_upcoming_queue(queue_id, status)

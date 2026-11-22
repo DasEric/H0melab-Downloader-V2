@@ -8,8 +8,6 @@ from h0melab.extractors.provider import hanime_tv
 QUERIES = [
     (search.fetch_genre_animes, {"slug": "action"}),
     (search.query_s_to, {"genre": "action"}),
-    (search.query_burningseries, {"genre": "Action"}),
-    (search.query_kinox, {"genre": "Action"}),
     (hanime_tv.search_hanime, {"genre": "fantasy"}),
     (search.query_filmo, {"genre_id": 1}),
     (search.query_filmpalast, {"genre": "Action"}),
@@ -56,13 +54,6 @@ def test_limits_apply_to_each_backend(monkeypatch, query, kwargs):
     )
     monkeypatch.setattr(
         search, "_parse_cover_items", lambda *a: [{"title": str(n)} for n in range(5)]
-    )
-    monkeypatch.setattr(
-        search,
-        "_bs_index_cache",
-        '<div class="genre"><span><strong>Action</strong></span><ul>'
-        + "".join(f'<a href="serie/item-{n}">Item {n}</a>' for n in range(5))
-        + "</ul></div>",
     )
     for limit in (2, None):
         result = query(**kwargs, limit=limit)

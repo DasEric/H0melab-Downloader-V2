@@ -164,8 +164,10 @@ class AniworldEpisode:
         if self.__provider_url is None:
             from urllib.parse import urlparse
 
-            self.__provider_url = GLOBAL_SESSION.get(self.redirect_url).url
-            parsed_provider = urlparse((self.__provider_url or "").strip())
+            response = GLOBAL_SESSION.get(self.redirect_url, timeout=15)
+            response.raise_for_status()
+            provider_url = response.url
+            parsed_provider = urlparse((provider_url or "").strip())
             redirect_netloc = urlparse(self.redirect_url).netloc
             if (
                 not parsed_provider.scheme
@@ -176,6 +178,7 @@ class AniworldEpisode:
                     f"Failed to resolve provider URL for {self.selected_provider} "
                     f"from redirect {self.redirect_url}"
                 )
+            self.__provider_url = provider_url
         return self.__provider_url
 
     @property
@@ -283,7 +286,7 @@ class AniworldEpisode:
 
     @property
     def _episode_path(self):
-        from ...web.connector_files import routed_episode_path
+        from ...web.media_files import routed_episode_path
 
         if (routed := routed_episode_path(self)) is not None:
             return routed
@@ -291,7 +294,7 @@ class AniworldEpisode:
             self.__episode_path = (
                 self._folder_path / f"{self._file_name}.{self._file_extension}"
             )
-        from ...web.connector_files import episode_path
+        from ...web.media_files import episode_path
 
         return episode_path(self, self.__episode_path)
 
@@ -369,7 +372,8 @@ class AniworldEpisode:
     def _html(self):
         if self.__html is None:
             logger.debug(f"fetching ({self.url})...")
-            resp = GLOBAL_SESSION.get(self.url)
+            resp = GLOBAL_SESSION.get(self.url, timeout=15)
+            resp.raise_for_status()
             self.__html = resp.text
         return self.__html
 

@@ -286,7 +286,7 @@ def test_retry_resets_everything(queue_item, status):
     db.set_queue_status(queue_id, "running")
     db.update_queue_progress(queue_id, 3, "https://x/ep4")
     db.update_queue_errors(queue_id, [{"error": "boom"}])
-    db.set_captcha_url(queue_id, "https://kinox.to/captcha")
+    db.set_captcha_url(queue_id, "https://serienstream.to/captcha")
     db.cancel_queue_item(queue_id, force=True)
     db.set_queue_status(queue_id, status)
 
@@ -526,8 +526,7 @@ def test_moving_a_missing_item_reports_it():
 def test_stale_running_items_are_requeued(queue_item):
     queue_id = queue_item()
     db.set_queue_status(queue_id, "running")
-    db.set_captcha_url(queue_id, "https://kinox.to/captcha")
-    db.cancel_queue_item(queue_id)
+    db.set_captcha_url(queue_id, "https://serienstream.to/captcha")
 
     db.reset_stale_running()
     item = db.get_queue_item(queue_id)
@@ -547,8 +546,10 @@ def test_recovery_leaves_finished_work_alone(queue_item):
 
 def test_captcha_url_round_trip(queue_item):
     queue_id = queue_item()
-    db.set_captcha_url(queue_id, "https://kinox.to/captcha")
-    assert db.get_queue_item(queue_id)["captcha_url"] == "https://kinox.to/captcha"
+    db.set_captcha_url(queue_id, "https://serienstream.to/captcha")
+    assert (
+        db.get_queue_item(queue_id)["captcha_url"] == "https://serienstream.to/captcha"
+    )
     db.clear_captcha_url(queue_id)
     assert db.get_queue_item(queue_id)["captcha_url"] is None
 
@@ -714,3 +715,61 @@ def test_running_item_finishes_pause_transition(queue_item):
     assert item["status"] == "queued"
     assert item["pause_requested"] == 1
     assert item["paused_at"] is not None
+
+
+@pytest.mark.parametrize("forced", [False, True])
+def test_recovery_preserves_requested_cancellation(queue_item, forced):
+    queue_id = queue_item()
+    db.set_queue_status(queue_id, "running")
+    with db.session() as conn:
+        conn.execute(
+            "UPDATE download_queue SET cancel_requested=1,force_cancelled=? WHERE id=?",
+            (int(forced), queue_id),
+        )
+    assert db.reset_stale_running()
+    item = db.get_queue_item(queue_id)
+    assert item["status"] == "cancelled"
+    assert item["completed_at"]
+    assert db.claim_next_queued() is None
+
+
+def test_worker_ownership_survives_other_process_and_releases_on_death(queue_item):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    queue_id = queue_item()
+    db.set_queue_status(queue_id, "running")
+    script = """import sys
+from pathlib import Path
+from h0melab.web import db
+db.DB_PATH = Path(sys.argv[1])
+with db.worker_ownership() as acquired:
+    print('OWNED' if acquired else 'BUSY', flush=True)
+    sys.stdin.read()
+"""
+    child = subprocess.Popen(
+        [sys.executable, "-c", script, str(db.DB_PATH)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={**os.environ, "PYTHONPATH": str(Path(db.__file__).resolve().parents[2])},
+    )
+    try:
+        result = child.stdout.readline().strip()
+        assert result == "OWNED", (
+            child.stderr.read() if child.poll() is not None else result
+        )
+        assert db.reset_stale_running() is False
+        assert db.get_queue_item(queue_id)["status"] == "running"
+        with db.worker_ownership() as acquired:
+            assert not acquired
+    finally:
+        child.kill()
+        child.communicate(timeout=15)
+    assert db.reset_stale_running()
+    assert db.get_queue_item(queue_id)["status"] == "queued"
+    with db.worker_ownership() as acquired:
+        assert acquired

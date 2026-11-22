@@ -320,11 +320,11 @@ class FilmoEpisode:
 
     @property
     def _episode_path(self):
-        from ...web.connector_files import routed_episode_path
+        from ...web.media_files import routed_episode_path
 
         if (routed := routed_episode_path(self)) is not None:
             return routed
-        from ...web.connector_files import episode_path
+        from ...web.media_files import episode_path
 
         return episode_path(
             self, self._folder_path / f"{self._file_name}.{self._file_extension}"

@@ -5,7 +5,7 @@ from importlib.metadata import version as package_version
 from pathlib import Path
 from tomllib import loads
 
-FALLBACK_VERSION = "2.3.1"
+FALLBACK_VERSION = "2.4.0"
 
 
 def get_version():

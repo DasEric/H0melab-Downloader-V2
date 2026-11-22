@@ -4,13 +4,12 @@
   const el = (id) => document.getElementById(id);
 
   const SITE_OPTIONS = [
+    ["zdf", "ZDF"],
+    ["dmax", "DMAX"],
     ["aniworld", "AniWorld"],
     ["sto", "SerienStream"],
-    ["burningseries", "BurningSeries"],
     ["megakino", "MegaKino"],
     ["moflix", "Moflix"],
-    ["cineby", "Cineby"],
-    ["kinox", "Kinox"],
     ["filmpalast", "FilmPalast"],
     ["filmo", "Filmo"],
     ["htv", "Hanime"],
@@ -730,10 +729,7 @@
     el("discordEnabled").checked = Boolean(discord.enabled);
     // Never send the real token to the browser, show a placeholder instead
     el("discordToken").value = discord.token_set ? SECRET_PLACEHOLDER : "";
-    el("discordOwner").value = discord.owner_id || "";
-    el("discordMode").value = discord.mode || "standard";
     el("discordLanguage").value = discord.language || "en";
-    el("discordRole").value = discord.request_role_id || "";
     el("discordGuild").value = discord.guild_id || "";
     el("discordAnnounce").value = discord.announce_channel_id || "";
   }
@@ -743,10 +739,7 @@
       discord: {
         enabled: el("discordEnabled").checked,
         token: el("discordToken").value,
-        owner_id: el("discordOwner").value.trim(),
-        mode: el("discordMode").value,
         language: el("discordLanguage").value,
-        request_role_id: el("discordRole").value.trim(),
         guild_id: el("discordGuild").value.trim(),
         announce_channel_id: el("discordAnnounce").value.trim()
       }

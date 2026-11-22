@@ -15,23 +15,20 @@
       {% if sites.sto %}
       <button class="segmented-btn" data-site="sto">SerienStream</button>
       {% endif %}
-      {% if sites.burningseries %}
-      <button class="segmented-btn" data-site="burningseries">BurningSeries</button>
-      {% endif %}
       {% if sites.megakino %}
       <button class="segmented-btn" data-site="megakino">MegaKino</button>
-      {% endif %}
-      {% if sites.cineby %}
-      <button class="segmented-btn" data-site="cineby">Cineby</button>
-      {% endif %}
-      {% if sites.kinox %}
-      <button class="segmented-btn" data-site="kinox">Kinox</button>
       {% endif %}
       {% if sites.filmpalast %}
       <button class="segmented-btn" data-site="filmpalast">FilmPalast</button>
       {% endif %}
       {% if sites.moflix %}
       <button class="segmented-btn" data-site="moflix">Moflix</button>
+      {% endif %}
+      {% if sites.zdf %}
+      <button class="segmented-btn" data-site="zdf">ZDF</button>
+      {% endif %}
+      {% if sites.dmax %}
+      <button class="segmented-btn" data-site="dmax">DMAX</button>
       {% endif %}
       {% if sites.filmo %}
       <button class="segmented-btn" data-site="filmo">Filmo</button>
@@ -94,12 +91,6 @@
       <div class="browse-grid"></div>
     </section>
     {% endif %}
-    {% if sites.kinox %}
-    <section class="browse-section" data-row="kinox_movies" data-sites="kinox">
-      <h2 class="browse-heading" data-i18n="browse.new_movies">New Movies</h2>
-      <div class="browse-grid"></div>
-    </section>
-    {% endif %}
     {% if sites.filmpalast %}
     <section class="browse-section" data-row="filmpalast_movies" data-sites="filmpalast">
       <h2 class="browse-heading" data-i18n="browse.new_movies">New Movies</h2>
@@ -109,18 +100,6 @@
     {% if sites.filmo %}
     <section class="browse-section" data-row="filmo_movies" data-sites="filmo">
       <h2 class="browse-heading" data-i18n="browse.new_movies">New Movies</h2>
-      <div class="browse-grid"></div>
-    </section>
-    {% endif %}
-    {% if sites.burningseries %}
-    <section class="browse-section" data-row="burningseries_series" data-sites="burningseries">
-      <h2 class="browse-heading" data-i18n="browse.recent_series">Recently Updated</h2>
-      <div class="browse-grid"></div>
-    </section>
-    {% endif %}
-    {% if sites.cineby %}
-    <section class="browse-section" data-row="cineby_movies" data-sites="cineby">
-      <h2 class="browse-heading" data-i18n="browse.trending_movies">Trending Movies</h2>
       <div class="browse-grid"></div>
     </section>
     {% endif %}
@@ -272,13 +251,11 @@
     aniworld: {{ lang_labels.values() | list | tojson }},
     sto: {{ sto_lang_labels.values() | list | tojson }},
     megakino: {{ megakino_lang_labels.values() | list | tojson }},
-    kinox: ["German Dub", "English Dub"],
-    burningseries: ["German Dub", "English Dub"],
     filmpalast: ["German Dub", "English Dub"],
     moflix: ["German Dub"],
     filmo: ["German Dub", "English Dub"],
-    // Cineby only keeps German when /api/providers reports it for the title
-    cineby: ["English Dub", "German Dub"]
+    zdf: ["German Dub", "English Dub"],
+    dmax: ["German Dub"],
   };
   window.DEFAULT_LANGUAGE = {{ default_language | tojson }};
   window.AUTOSYNC_ENABLED = {{ (autosync_enabled and is_admin) | tojson }};
@@ -287,5 +264,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='home.js') }}?v={{ app_version }}-serienstream-soft-subs-autosync-fix"></script>
+<script src="{{ url_for('static', filename='home.js') }}?v={{ app_version }}-zdf-dmax-search-v2"></script>
 {% endblock %}

@@ -250,19 +250,15 @@
       "settings.disable_english_sub_hint":
         "English Sub wird aus der Sprachauswahl ausgeblendet und kann nicht heruntergeladen werden.",
       "settings.enable_htv_hint": "Erwachsenen-Animation. Standardmäßig aus.",
-      "settings.enable_burningseries_hint":
-        "Serien. Standardmäßig aus: Der Zugang hängt von deiner Region ab, und davor steht ein Google reCAPTCHA, das wir nicht für dich lösen können.",
-      "settings.enable_kinox_hint":
-        "Filme und Serien. Standardmäßig aus: Ein Download verlangt fast immer ein Captcha, das du von Hand lösen musst.",
       "settings.enable_aniworld_hint":
         "Anime und Anime-Filme. Eine der beiden Seiten, für die diese App gebaut ist.",
       "settings.enable_sto_hint": "Serien. Die zweite Seite, für die diese App gebaut ist.",
       "settings.enable_megakino_hint": "Filme und Serien auf Deutsch.",
       "settings.enable_moflix_hint": "Filme und Serien auf Deutsch.",
-      "settings.enable_cineby_hint":
-        "Filme und Serien. Deutsche Tonspuren sind dort nicht immer zuverlässig.",
       "settings.enable_filmpalast_hint": "Filme auf Deutsch.",
       "settings.enable_filmo_hint": "Filme auf Deutsch und Englisch.",
+      "settings.enable_zdf_hint": "Titelsuche, Video- und Sendungs-URLs, Staffeln und native Downloads.",
+      "settings.enable_dmax_hint": "Titelsuche, Sendungen, Staffeln und native Folgen-Downloads.",
       "settings.enable_mangafire_hint":
         "Manga, gespeichert als einzelne Bilder oder als ein CBZ-Archiv pro Kapitel.",
       "settings.nav.downloads": "Downloads",
