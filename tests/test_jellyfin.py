@@ -132,3 +132,75 @@ def test_settings_api_persists_without_secret_export(client, monkeypatch, tmp_pa
         == 200
     )
     assert not jellyfin.settings()["key_set"]
+
+
+def test_library_choices_use_draft_key_without_saving(client, monkeypatch):
+    import os
+
+    from h0melab.web.views import ADMIN_ENDPOINTS
+
+    assert "api.jellyfin_libraries" in ADMIN_ENDPOINTS
+    calls = []
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, **kwargs):
+            calls.append((url, kwargs))
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: [
+                    {"Name": "My movies", "ItemId": MOVIE, "CollectionType": "movies"},
+                    {"Name": "My shows", "ItemId": SERIES, "CollectionType": "tvshows"},
+                    {"Name": "Music", "ItemId": "3" * 32, "CollectionType": "music"},
+                ],
+            )
+
+    monkeypatch.setattr(jellyfin.niquests, "Session", Session)
+    response = client.post(
+        "/api/settings/jellyfin/libraries",
+        json={"url": "http://jellyfin:8096/base", "api_key": "draft-secret"},
+    )
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "no-store"
+    assert len(response.get_json()["libraries"]) == 2
+    assert calls[0][0] == "http://jellyfin:8096/base/Library/VirtualFolders"
+    assert calls[0][1]["headers"]["X-Emby-Token"] == "draft-secret"
+    assert calls[0][1]["allow_redirects"] is False
+    assert calls[0][1]["timeout"] == 10
+    assert "draft-secret" not in response.get_data(as_text=True)
+    assert not os.environ.get(jellyfin.KEYS["api_key"])
+
+
+def test_library_choices_saved_key_and_generic_failure(client, configured, monkeypatch):
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, **kwargs):
+            assert kwargs["headers"]["X-Emby-Token"] == "secret"
+            raise TimeoutError("private-secret-data")
+
+    monkeypatch.setattr(jellyfin.niquests, "Session", Session)
+    response = client.post("/api/settings/jellyfin/libraries", json={})
+    assert response.status_code == 400
+    assert "private-secret-data" not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("scope", ["read", "write"])
+def test_library_choices_require_admin(client, api_key, monkeypatch, scope):
+    monkeypatch.setattr(
+        jellyfin, "libraries", lambda *args: pytest.fail("Must not contact Jellyfin")
+    )
+    raw, _ = api_key(scope=scope)
+    response = client.post(
+        "/api/settings/jellyfin/libraries", json={}, headers={"X-API-Key": raw}
+    )
+    assert response.status_code == 403

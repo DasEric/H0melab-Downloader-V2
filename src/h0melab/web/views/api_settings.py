@@ -10,6 +10,9 @@ logger = get_logger(__name__)
 
 
 def register(bp):
+    bp.add_url_rule(
+        "/settings/jellyfin/libraries", view_func=jellyfin_libraries, methods=["POST"]
+    )
     bp.add_url_rule("/settings", view_func=get_settings)
     bp.add_url_rule("/settings", view_func=update_settings, methods=["PUT"])
     bp.add_url_rule("/settings/public-ip", view_func=public_ip)
@@ -58,6 +61,7 @@ def update_settings():
         result["tmdb"] = settings_store.tmdb_settings()
     if "seerr" in data:
         from ..seerr import settings
+
         result["seerr"] = settings()
     return jsonify(result)
 
@@ -259,3 +263,15 @@ def update_custom_path(path_id):
 def delete_custom_path(path_id):
     db.remove_custom_path(path_id)
     return jsonify({"ok": True})
+
+
+def jellyfin_libraries():
+    from .. import jellyfin
+
+    try:
+        items = jellyfin.libraries(request.get_json(silent=True))
+    except settings_store.SettingsError as exc:
+        return jsonify(error=str(exc)), 400
+    response = jsonify(libraries=items)
+    response.headers["Cache-Control"] = "no-store"
+    return response

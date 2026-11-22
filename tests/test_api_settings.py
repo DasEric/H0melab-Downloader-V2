@@ -564,8 +564,10 @@ def test_integration_settings_use_shared_form_styles(client):
     html = client.get("/settings").get_data(as_text=True)
     parser = Inputs()
     parser.feed(html)
-    for name in ("jellyfinMovie", "jellyfinSeries", "seerrEndpoint"):
+    for name in ("seerrEndpoint",):
         assert parser.fields[name]["type"] == "text"
+    assert '<select id="jellyfinMovie">' in html
+    assert '<select id="jellyfinSeries">' in html
     assert parser.fields["jellyfinUrl"]["type"] == "url"
     assert parser.fields["seerrSecret"]["type"] == "password"
     assert html.count('class="card integration-settings"') == 2

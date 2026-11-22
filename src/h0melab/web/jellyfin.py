@@ -132,3 +132,60 @@ def refresh(media_type):
             kind,
         )
         return False
+
+
+def libraries(payload):
+    """Read library choices using draft credentials; never persist or echo keys."""
+    from .settings_store import SettingsError
+
+    if not isinstance(payload, dict):
+        raise SettingsError("Jellyfin settings must be an object")
+    raw = {
+        name: payload.get(name, os.environ.get(KEYS[name], ""))
+        for name in ("url", "api_key")
+    }
+    validated = {}
+    collect_settings(raw, validated)
+    url = validated.get(KEYS["url"], "")
+    token = validated.get(KEYS["api_key"], "")
+    if not url or not token:
+        raise SettingsError("Jellyfin-Server-URL und API-Key erforderlich")
+    try:
+        with niquests.Session() as session:
+            response = session.get(
+                url + "/Library/VirtualFolders",
+                headers={"X-Emby-Token": token},
+                timeout=10,
+                allow_redirects=False,
+            )
+            if response.status_code != 200:
+                raise ValueError("Library discovery failed")
+            rows = response.json()
+        if not isinstance(rows, list):
+            raise TypeError("Invalid library response")
+        result = []
+        seen = set()
+        for row in rows:
+            if not isinstance(row, dict) or row.get("CollectionType") not in (
+                "movies",
+                "tvshows",
+            ):
+                continue
+            ident = row.get("ItemId")
+            if not isinstance(ident, str) or not ident or ident in seen:
+                continue
+            collect_settings({"movie_library_id": ident}, {})
+            seen.add(ident)
+            name = row.get("Name")
+            result.append(
+                {
+                    "id": ident,
+                    "name": name if isinstance(name, str) and name else ident,
+                    "type": row["CollectionType"],
+                }
+            )
+        return result
+    except Exception:
+        raise SettingsError(
+            "Bibliotheken konnten nicht geladen werden. Server-URL, API-Key und Erreichbarkeit prüfen."
+        ) from None

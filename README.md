@@ -425,7 +425,12 @@ einen Jellyfin-API-Key und die beiden Bibliothek-IDs speichern. Im Container ist
 `localhost` der Downloader selbst; verwende z. B. `http://jellyfin:8096` im gemeinsamen
 Docker-Netz. In Jellyfin einen API-Key unter Dashboard → API-Schlüssel erstellen.
 
-Die IDs sind `ItemId` aus `GET /Library/VirtualFolders` (Header
+Einfacher: **Bibliotheken laden** anklicken (funktioniert auch vor dem Speichern mit
+dem gerade eingegebenen API-Key), Film- und Serienbibliothek nach Namen auswählen
+und **Jellyfin speichern**. Ein leeres Key-Feld nutzt den bereits gespeicherten Key.
+Der Abruf allein speichert keine Einstellungen und zeigt nur passende Bibliothekstypen.
+
+Für manuelle Umgebungskonfiguration: Die IDs sind `ItemId` aus `GET /Library/VirtualFolders` (Header
 `X-Emby-Token: <API-Key>`), **keine Bibliotheknamen oder Dateipfade**. Die
 Filmbibliothek muss `CollectionType: movies`, die Serienbibliothek `tvshows` haben.
 Beide Bibliotheken müssen die entsprechenden Medienmounts in Jellyfin sehen.

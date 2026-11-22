@@ -701,9 +701,10 @@
           <label class="field"><span class="field-label">Server-URL (aus dem Downloader erreichbar)</span><input id="jellyfinUrl" type="url" placeholder="http://jellyfin:8096" /></label>
           <label class="field"><span class="field-label">API-Key</span><input id="jellyfinKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
           <label class="checkbox"><input id="jellyfinClearKey" type="checkbox" /> Gespeicherten API-Key löschen</label>
-          <label class="field"><span class="field-label">Filmbibliothek-ID</span><input type="text" id="jellyfinMovie" /></label>
-          <label class="field"><span class="field-label">Serienbibliothek-ID</span><input type="text" id="jellyfinSeries" /></label>
-          <p class="hint">Bibliothek-IDs (ItemId) aus Jellyfin /Library/VirtualFolders übernehmen, keine Namen oder Dateipfade. Der Bibliothekstyp wird vor jedem Scan geprüft. Scanfehler ändern keinen erfolgreichen Downloadstatus.</p>
+          <label class="field"><span class="field-label">Filmbibliothek</span><select id="jellyfinMovie"><option value="">Keine ausgewählt</option></select></label>
+          <label class="field"><span class="field-label">Serienbibliothek</span><select id="jellyfinSeries"><option value="">Keine ausgewählt</option></select></label>
+          <div class="action-row"><button type="button" class="btn btn-secondary" id="loadJellyfinLibraries">Bibliotheken laden</button></div>
+          <p class="hint">Server-URL und API-Key eingeben, Bibliotheken laden und auswählen. Ein leerer API-Key nutzt den gespeicherten Schlüssel. Laden speichert noch nichts; anschließend „Jellyfin speichern“. Film- und Serienbibliotheken werden nach Typ getrennt.</p>
           <div class="action-row">
             <button type="button" class="btn btn-primary" id="saveJellyfin">Jellyfin speichern</button>
           </div>
