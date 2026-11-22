@@ -1,6 +1,8 @@
 """DMAX's Aurora catalogue and playback API, without yt-dlp imports."""
 
 import re
+import base64
+import json
 import uuid
 from functools import cached_property
 from urllib.parse import parse_qs, quote, urlparse
@@ -16,6 +18,26 @@ DMAX_COLLECTION_PATTERN = re.compile(
     r"https?://(?:www\.)?dmax\.de/(?:(?:sendungen|programme|show)/)?"
     r"[\w-]+/?(?:\?[^#]*)?(?:#.*)?$"
 )
+
+
+def poster_url(value):
+    """Use DMAX's public image delivery service, not its private S3 origin."""
+    url = media_url(value)
+    parsed = urlparse(url)
+    prefix = "/loma-media-de/"
+    if parsed.hostname == "s3.eu-west-1.amazonaws.com" and parsed.path.startswith(
+        prefix
+    ):
+        spec = {
+            "bucket": "loma-media-de",
+            "key": parsed.path[len(prefix) :],
+            "edits": {"resize": {"width": 480, "fit": "inside"}},
+        }
+        encoded = base64.b64encode(
+            json.dumps(spec, separators=(",", ":")).encode()
+        ).decode()
+        return "https://d2v9mhsiek5lbq.cloudfront.net/" + encoded
+    return url
 
 
 class DMAXClient(JSONClient):
@@ -122,7 +144,7 @@ class DMAXClient(JSONClient):
                         {
                             "title": item["title"],
                             "url": url,
-                            "poster": media_url((item.get("image") or {}).get("url")),
+                            "poster": poster_url((item.get("image") or {}).get("url")),
                             "source": "dmax",
                             "media_type": "series",
                         }
@@ -179,7 +201,7 @@ class DMAXClient(JSONClient):
             title=attributes["name"].strip(),
             description=attributes.get("description") or "",
             poster=next(
-                (media_url(i.get("src")) for i in images if media_url(i.get("src"))), ""
+                (poster_url(i.get("src")) for i in images if media_url(i.get("src"))), ""
             ),
             series=shows[0].get("name", "") if shows else "",
             season=number(attributes.get("seasonNumber")),
@@ -269,7 +291,7 @@ class DMAXCollection:
     def poster_url(self):
         return next(
             (
-                media_url((row.get("media") or {}).get("url"))
+                poster_url((row.get("media") or {}).get("url"))
                 for row in self.data.get("metaMedia", [])
                 if row.get("role") == "default"
             ),

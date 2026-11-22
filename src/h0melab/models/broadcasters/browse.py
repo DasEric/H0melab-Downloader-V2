@@ -2,9 +2,11 @@
 
 from html.parser import HTMLParser
 from urllib.parse import urljoin, urlsplit
+import json
+import re
 import niquests
 from .client import BroadcasterError, media_url
-from .dmax import DMAXClient, DMAX_COLLECTION_PATTERN
+from .dmax import DMAXClient, DMAX_COLLECTION_PATTERN, poster_url
 
 
 class ZDFCards(HTMLParser):
@@ -46,7 +48,7 @@ class ZDFCards(HTMLParser):
             if (
                 parsed.hostname in ("zdf.de", "www.zdf.de")
                 and parsed.scheme == "https"
-                and parsed.path.rstrip("/").endswith("-100")
+                and re.search(r"-\d+$", parsed.path.rstrip("/"))
                 and not parsed.fragment
                 and not any(
                     word in parsed.path for word in ("livestream", "liveticker")
@@ -66,14 +68,80 @@ class ZDFCards(HTMLParser):
                 )
 
 
+def zdf_embedded_cards(html):
+    """Read the full server-delivered catalogue, including lazy carousel tiles.
+
+    Decode JSON only; never evaluate the embedded script.
+    """
+    rows, seen = [], set()
+
+    def walk(value):
+        if isinstance(value, dict):
+            kind = value.get("__typename", "")
+            if kind == "Video" or kind.endswith("SmartCollection"):
+                click = ((value.get("tracking") or {}).get("piano") or {}).get(
+                    "click"
+                ) or {}
+                url = value.get("sharingUrl") or click.get("target_url") or ""
+                parsed = urlsplit(url)
+                teaser = value.get("teaser") or {}
+                image = teaser.get("imageWithoutLogo") or teaser.get("image") or {}
+                layouts = image.get("layouts") or {}
+                poster = media_url(
+                    layouts.get("dim640X720")
+                    or layouts.get("dim384X216")
+                    or layouts.get("original")
+                )
+                title = teaser.get("title") or value.get("title")
+                if (
+                    title
+                    and poster
+                    and parsed.scheme == "https"
+                    and parsed.hostname in ("www.zdf.de", "zdf.de")
+                    and re.search(r"-\d+$", parsed.path.rstrip("/"))
+                    and not parsed.fragment
+                    and not any(
+                        word in parsed.path for word in ("livestream", "liveticker")
+                    )
+                    and url not in seen
+                ):
+                    seen.add(url)
+                    rows.append(
+                        {
+                            "url": url,
+                            "title": title,
+                            "poster_url": poster,
+                            "source": "zdf",
+                        }
+                    )
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    for raw in re.findall(r"self\.__next_f\.push\((.*?)\)</script>", html, re.DOTALL):
+        try:
+            packet = json.loads(raw)
+            payload = packet[1]
+            data = json.JSONDecoder().raw_decode(payload.split(":", 1)[1])[0]
+        except (ValueError, TypeError, IndexError, AttributeError):
+            continue
+        walk(data)
+    return rows
+
+
 def fetch_zdf_preview():
     response = niquests.get("https://www.zdf.de/", timeout=15)
     response.raise_for_status()
+    rows = zdf_embedded_cards(response.text)
     parser = ZDFCards()
     parser.feed(response.text)
-    if not parser.rows:
+    seen = {row["url"] for row in rows}
+    rows.extend(row for row in parser.rows if row["url"] not in seen)
+    if not rows:
         raise BroadcasterError("ZDF preview catalogue unavailable")
-    return parser.rows[:24]
+    return rows[:24]
 
 
 def fetch_dmax_preview():
@@ -89,7 +157,7 @@ def fetch_dmax_preview():
         slug = item.get("slug") or ""
         parent = item.get("parentSlug") or ""
         url = "https://dmax.de/" + (parent + "/" if parent else "") + slug
-        poster = media_url((item.get("image") or {}).get("url"))
+        poster = poster_url((item.get("image") or {}).get("url"))
         if (
             slug
             and poster
