@@ -180,7 +180,7 @@ def choose_candidate(identity, hits):
         ):
             unique[hit["url"]] = hit
 
-    return next(iter(unique.values())) if len(unique) == 1 else None
+    return next(iter(unique.values()), None)
 
 
 def assess_episode(identity, tmdb_episode, provider_row):

@@ -110,7 +110,7 @@ def record(entry, path):
         )
 
 
-def download(item, entry, episode):
+def download(item, entry, episode, *, source_request=None):
     identity = entry["_seerr_identity"]
     from . import video_library
 
@@ -144,6 +144,7 @@ def download(item, entry, episode):
     from . import seerr_matching
 
     request = seerr.get_request(queue_id=item["id"])
+    request = source_request or request
     seerr_matching.revalidate_selection(identity, request)
     if expected_kind == "series":
         seerr_matching.revalidate_episode_source(identity, request, entry)

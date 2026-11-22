@@ -170,7 +170,8 @@ def _process(item):
                     return
             entry_options = dict(item)
             entry_path = selected_path
-            provider, episode = _build_episode(url, extra, entry_options, entry_path)
+            if item.get("source") != "seerr":
+                provider, episode = _build_episode(url, extra, entry_options, entry_path)
             if item.get("source") == "seerr":
                 pass  # Seerr applies its canonical layout and fresh targets below.
             elif media_targets.read()["enabled"] and provider.name != "MangaFire":
@@ -251,7 +252,8 @@ def _process(item):
                     if stopped(item):
                         return
                     from . import seerr_files
-                    existed = seerr_files.download(item, entry, episode)
+                    from .seerr_fallback import download_entry
+                    existed = download_entry(item, entry, entry_path, index)
                     if existed is None:
                         return
                     all_existing = existed and all_existing

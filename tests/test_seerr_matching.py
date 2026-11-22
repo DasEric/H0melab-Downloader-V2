@@ -53,12 +53,12 @@ def test_id_still_requires_type(identity):
     assert not matching.assess_candidate(identity, {"tmdb_id": 157336})["eligible"]
 
 
-def test_multiple_matching_sources_require_review(identity):
+def test_multiple_matching_sources_choose_first_verified(identity):
     hits = [
         {"media_type": "movie", "tmdb_id": 157336, "url": url}
         for url in ("https://one", "https://two")
     ]
-    assert matching.choose_candidate(identity, hits) is None
+    assert matching.choose_candidate(identity, hits) == hits[0]
     assert matching.choose_candidate(identity, [hits[0], hits[0]]) == hits[0]
 
 
