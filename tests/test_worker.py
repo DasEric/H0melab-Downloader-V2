@@ -445,6 +445,6 @@ def test_concurrent_connections_claim_only_one_job(queue_item):
         results = list(pool.map(lambda _: claim(), range(8)))
     claimed = [row for row in results if row is not None]
     assert len(claimed) == 1
-    assert claimed[0]['id'] == first
-    assert claimed[0]['status'] == 'running'
-    assert claimed[0]['started_at']
+    assert claimed[0]["id"] == first
+    assert claimed[0]["status"] == "running"
+    assert claimed[0]["started_at"]

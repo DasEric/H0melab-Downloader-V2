@@ -1961,18 +1961,48 @@ def test_changed_review_can_be_approved_again_on_same_queue(
 @pytest.mark.parametrize("kind", ["movie", "tv"])
 def test_jellyfin_refresh_only_after_new_completed_file(setup_media, monkeypatch, kind):
     from h0melab.web import jellyfin
+
     qid = request(monkeypatch, kind, [1] if kind == "tv" else None)
     if kind == "tv":
-        monkeypatch.setattr(seerr_processing, "episode_rows", lambda *a: [{
-            "url": "https://example.test/episode", "season_number": 1,
-            "episode_number": 1, "episode_title": "Pilot", "series_tmdb_id": 42,
-        }])
-        monkeypatch.setattr(seerr_processing.tmdb, "season_details", lambda *a: {
-            "episodes": [{"series_tmdb_id": 42, "season_number": 1, "episode_number": 1, "name": "Pilot"}]
-        })
+        monkeypatch.setattr(
+            seerr_processing,
+            "episode_rows",
+            lambda *a: [
+                {
+                    "url": "https://example.test/episode",
+                    "season_number": 1,
+                    "episode_number": 1,
+                    "episode_title": "Pilot",
+                    "series_tmdb_id": 42,
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            seerr_processing.tmdb,
+            "season_details",
+            lambda *a: {
+                "episodes": [
+                    {
+                        "series_tmdb_id": 42,
+                        "season_number": 1,
+                        "episode_number": 1,
+                        "name": "Pilot",
+                    }
+                ]
+            },
+        )
     calls = []
-    monkeypatch.setattr(jellyfin, "refresh", lambda media_type: calls.append(media_type))
-    monkeypatch.setattr(worker, "_build_episode", lambda *a: (SimpleNamespace(name="Fake"), Episode(kind, 1 if kind == "tv" else 0, 1 if kind == "tv" else 0)))
+    monkeypatch.setattr(
+        jellyfin, "refresh", lambda media_type: calls.append(media_type)
+    )
+    monkeypatch.setattr(
+        worker,
+        "_build_episode",
+        lambda *a: (
+            SimpleNamespace(name="Fake"),
+            Episode(kind, 1 if kind == "tv" else 0, 1 if kind == "tv" else 0),
+        ),
+    )
     worker._process(db.get_queue_item(qid))
     assert calls == [kind]
     assert seerr.get_request(queue_id=qid)["status"] == "completed"

@@ -123,7 +123,7 @@ def search(site, keyword):
     except MoflixResponseError as exc:
         logger.warning("Search on %s failed", site)
         return SearchResults(error=str(exc))
-    except Exception as exc:
+    except Exception:
         logger.warning("Search on %s failed", site)
         return SearchResults(error=f"Search on {site} failed")
     if raw is None:

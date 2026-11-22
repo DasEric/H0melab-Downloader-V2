@@ -203,7 +203,9 @@ def one_piece(monkeypatch, tmp_path):
             '<span class="episodeGermanTitle">Eine Folge</span>'
             '<li data-lang-key="1"><a href="/redirect/1"><h4>VOE</h4></a></li>'
         )
-        return SimpleNamespace(text=title + rows + player, raise_for_status=lambda: None)
+        return SimpleNamespace(
+            text=title + rows + player, raise_for_status=lambda: None
+        )
 
     def download(episode):
         state["downloads"].append(episode.episode_number)

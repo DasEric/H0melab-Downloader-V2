@@ -66,9 +66,10 @@ def test_hoster_redirect_failure_does_not_poison_cache(monkeypatch, kind, failur
 
 
 def test_aniworld_invalid_redirect_is_revalidated_each_time(monkeypatch):
+    from types import SimpleNamespace
+
     from h0melab.config import GLOBAL_SESSION
     from h0melab.models.h0melab_to.episode import AniworldEpisode
-    from types import SimpleNamespace
 
     model = object.__new__(AniworldEpisode)
     model._AniworldEpisode__provider_url = None

@@ -9,10 +9,10 @@ from flask import Blueprint
 from . import (
     api_autosync,
     api_catalog,
-    api_media_targets,
     api_keys,
     api_library,
     api_media,
+    api_media_targets,
     api_queue,
     api_seerr,
     api_settings,

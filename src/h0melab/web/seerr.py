@@ -14,6 +14,10 @@ SECRET = "H0MELAB_SEERR_WEBHOOK_SECRET"
 APPROVED = {"MEDIA_APPROVED", "MEDIA_AUTO_APPROVED"}
 
 
+class SeerrValidationError(ValueError):
+    """Invalid external payload; retain the API's ValueError-to-HTTP-400 contract."""
+
+
 def enabled():
     return os.environ.get(ENABLED, "0") == "1"
 
@@ -82,17 +86,17 @@ def _pick(data, nested, *keys):
 
 def parse_payload(data):
     if not isinstance(data, dict):
-        raise ValueError("Webhook payload must be an object")
+        raise SeerrValidationError("Webhook payload must be an object")
     event = data.get("notification_type")
     if not isinstance(event, str):
-        raise ValueError("notification_type is required")
+        raise SeerrValidationError("notification_type is required")
     if event == "TEST_NOTIFICATION":
         return {"event": event}
     if event not in APPROVED:
         return {"event": event, "ignored": True}
     media, request = data.get("media") or {}, data.get("request") or {}
     if not isinstance(media, dict) or not isinstance(request, dict):
-        raise ValueError("media and request must be objects")
+        raise SeerrValidationError("media and request must be objects")
     kind = _pick(data, media, "media_type", "mediaType")
     if kind not in ("movie", "tv"):
         raise ValueError("media_type must be movie or tv")
@@ -118,10 +122,9 @@ def parse_payload(data):
         raise ValueError("extra must be a bounded list")
     for item in extra:
         if not isinstance(item, dict):
-            raise ValueError("extra entries must be objects")
-        if item.get("name") in ("Requested Seasons", "Seasons"):
-            if item.get("value") is not None:
-                season_values.append(item["value"])
+            raise SeerrValidationError("extra entries must be objects")
+        if item.get("name") in ("Requested Seasons", "Seasons") and item.get("value") is not None:
+            season_values.append(item["value"])
 
     def numbers(raw):
         if raw is None:
@@ -370,7 +373,7 @@ def prepare(item):
 def review_request(request_id, data):
     """An administrator chooses evidence; the worker must verify it afresh."""
     if not isinstance(data, dict):
-        raise ValueError("Review must be an object")
+        raise SeerrValidationError("Review must be an object")
     selected = data.get("selected_url")
     reason = data.get("reason", "")
     mapping = data.get("episode_mapping", [])

@@ -26,7 +26,7 @@ from ...search import (
     fetch_popular_series,
     random_anime,
 )
-from .. import media_files, media, media_targets, paths, sitesearch, video_library
+from .. import media, media_files, media_targets, paths, sitesearch, video_library
 from ..search_contract import (
     BROWSE_PATHS,
     media_type,
@@ -898,7 +898,7 @@ def _mangafire_card(item):
     }
 
 
-from ...models.broadcasters.browse import fetch_zdf_preview, fetch_dmax_preview
+from ...models.broadcasters.browse import fetch_dmax_preview, fetch_zdf_preview
 
 _BROWSE_ROWS = (
     ("/zdf-preview", "zdf_preview", fetch_zdf_preview),

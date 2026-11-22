@@ -7,14 +7,14 @@ from h0melab.web import db, seerr
 
 @pytest.fixture
 def payload():
-    return dict(
-        notification_type="MEDIA_APPROVED",
-        media_type="movie",
-        media_tmdbid="157336",
-        media_imdbid="tt0816692",
-        request_id="5",
-        subject="Interstellar",
-    )
+    return {
+        "notification_type": "MEDIA_APPROVED",
+        "media_type": "movie",
+        "media_tmdbid": "157336",
+        "media_imdbid": "tt0816692",
+        "request_id": "5",
+        "subject": "Interstellar",
+    }
 
 
 @pytest.mark.parametrize(
@@ -44,12 +44,12 @@ def test_payload_rejects_invalid_identity(payload, field, value):
 
 def test_nested_official_payload():
     result = seerr.parse_payload(
-        dict(
-            notification_type="MEDIA_AUTO_APPROVED",
-            media=dict(media_type="tv", tmdbId="1405", imdbId="tt0773262"),
-            request=dict(request_id="8"),
-            extra=[dict(name="Requested Seasons", value="1, 2")],
-        )
+        {
+            "notification_type": "MEDIA_AUTO_APPROVED",
+            "media": {"media_type": "tv", "tmdbId": "1405", "imdbId": "tt0773262"},
+            "request": {"request_id": "8"},
+            "extra": [{"name": "Requested Seasons", "value": "1, 2"}],
+        }
     )
     assert result["seasons"] == [1, 2]
     assert result["media_type"] == "tv"
@@ -57,7 +57,9 @@ def test_nested_official_payload():
 
 def test_season_contradiction(payload):
     payload.update(
-        media_type="tv", seasons=[1], extra=[dict(name="Requested Seasons", value="2")]
+        media_type="tv",
+        seasons=[1],
+        extra=[{"name": "Requested Seasons", "value": "2"}],
     )
     with pytest.raises(ValueError):
         seerr.parse_payload(payload)
@@ -173,6 +175,7 @@ def test_invalid_optional_webhook_metadata_is_rejected(payload, metadata):
 def test_concurrent_event_replays_schedule_one_notification(monkeypatch, payload):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Lock
+
     from h0melab.web import discord_bot
 
     seerr.accept(seerr.parse_payload(payload))

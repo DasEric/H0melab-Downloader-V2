@@ -1,8 +1,8 @@
 """DMAX's Aurora catalogue and playback API, without yt-dlp imports."""
 
-import re
 import base64
 import json
+import re
 import uuid
 from functools import cached_property
 from urllib.parse import parse_qs, quote, urlparse

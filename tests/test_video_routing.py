@@ -8,8 +8,8 @@ import pytest
 
 from h0melab import search
 from h0melab.web import (
-    media_files,
     db,
+    media_files,
     media_targets,
     sitesearch,
     video_library,
@@ -194,8 +194,11 @@ def test_removed_variants_are_not_added_back_on_refresh(client, flat, monkeypatc
     assert len(video_library.active_members(group)) == 2
 
 
-def test_native_queue_routes_and_writes_real_series_structure(client, flat, targets, monkeypatch):
+def test_native_queue_routes_and_writes_real_series_structure(
+    client, flat, targets, monkeypatch
+):
     from h0melab.web import jellyfin
+
     scans = []
     monkeypatch.setattr(jellyfin, "refresh", lambda kind: scans.append(kind))
     _movie_id, show_id, movies, shows = targets
@@ -301,7 +304,6 @@ def test_media_targets_require_admin_and_retired_api_is_absent(
     key, _ = api_key("admin")
     response = client.get("/api/connector/capabilities", headers={"X-API-Key": key})
     assert response.status_code == 404
-
 
 
 def test_more_than_500_episodes_keep_one_request_and_bounded_work_sections(

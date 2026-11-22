@@ -46,10 +46,9 @@ def _get(path, **params):
             raise TMDBTransientError("TMDB request failed") from None
         if response.status_code in (401, 403):
             raise TMDBError("TMDB rejected the configured key")
-        if response.status_code == 429 or 500 <= response.status_code < 600:
-            if attempt < 2:
-                time.sleep(0.2 * (2 ** attempt))
-                continue
+        if (response.status_code == 429 or 500 <= response.status_code < 600) and attempt < 2:
+            time.sleep(0.2 * (2 ** attempt))
+            continue
         if response.status_code == 429 or 500 <= response.status_code < 600:
             raise TMDBTransientError(f"TMDB request failed ({response.status_code})")
         if not 200 <= response.status_code < 300:

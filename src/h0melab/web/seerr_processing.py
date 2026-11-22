@@ -2,7 +2,7 @@
 
 import json
 import time
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 
 from . import db, media_targets, seerr, seerr_matching, settings_store, sitesearch, tmdb
 
@@ -178,7 +178,7 @@ def prepare(item):
             raise ReviewRequired(
                 "Configure the existing movie and series destinations first"
             )
-        path_id, root, revision = target
+        path_id, root, _revision = target
         from . import seerr_inventory
 
         seerr_inventory.discover(root, identity, payload["seasons"])
@@ -369,7 +369,7 @@ def prepare(item):
                         future = (
                             bool(air_date)
                             and date.fromisoformat(air_date)
-                            > datetime.now(timezone.utc).date()
+                            > datetime.now(UTC).date()
                         )
                     except (ValueError, TypeError):
                         future = False

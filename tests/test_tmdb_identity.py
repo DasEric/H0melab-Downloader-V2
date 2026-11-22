@@ -1,22 +1,25 @@
 from copy import deepcopy
+
 import pytest
+
 from h0melab.web import tmdb
 
 
 @pytest.fixture
 def responses(monkeypatch):
     data = {
-        "movie/157336": dict(
-            id=157336,
-            title="Interstellar",
-            original_title="Interstellar",
-            release_date="2014-11-05",
-        ),
-        "movie/157336/external_ids": dict(id=157336, imdb_id="tt0816692"),
-        "movie/157336/alternative_titles": dict(
-            id=157336, titles=[dict(title="Interstellar Alternative")]
-        ),
-        "find/tt0816692": dict(movie_results=[dict(id=157336)], tv_results=[]),
+        "movie/157336": {
+            "id": 157336,
+            "title": "Interstellar",
+            "original_title": "Interstellar",
+            "release_date": "2014-11-05",
+        },
+        "movie/157336/external_ids": {"id": 157336, "imdb_id": "tt0816692"},
+        "movie/157336/alternative_titles": {
+            "id": 157336,
+            "titles": [{"title": "Interstellar Alternative"}],
+        },
+        "find/tt0816692": {"movie_results": [{"id": 157336}], "tv_results": []},
     }
     monkeypatch.setattr(tmdb, "_get", lambda path, **kwargs: deepcopy(data[path]))
     return data
@@ -25,9 +28,9 @@ def responses(monkeypatch):
 @pytest.mark.parametrize(
     "ids",
     [
-        dict(tmdb_id=157336),
-        dict(imdb_id="tt0816692"),
-        dict(tmdb_id=157336, imdb_id="tt0816692"),
+        {"tmdb_id": 157336},
+        {"imdb_id": "tt0816692"},
+        {"tmdb_id": 157336, "imdb_id": "tt0816692"},
     ],
 )
 def test_verified_identity(responses, ids):
@@ -40,10 +43,10 @@ def test_verified_identity(responses, ids):
 @pytest.mark.parametrize(
     "ids",
     [
-        dict(tmdb_id=True),
-        dict(tmdb_id=-1),
-        dict(imdb_id="bad"),
-        dict(tmdb_id="157336"),
+        {"tmdb_id": True},
+        {"tmdb_id": -1},
+        {"imdb_id": "bad"},
+        {"tmdb_id": "157336"},
         {},
     ],
 )
@@ -63,7 +66,7 @@ def test_wrong_type_is_not_resolved(responses):
 
 
 def test_ambiguous_imdb_result(responses):
-    responses["find/tt0816692"]["movie_results"].append(dict(id=1))
+    responses["find/tt0816692"]["movie_results"].append({"id": 1})
     with pytest.raises(tmdb.TMDBError):
         tmdb.identity_details("movie", imdb_id="tt0816692")
 
@@ -88,26 +91,26 @@ def test_missing_imdb_can_remain_missing(responses):
 @pytest.mark.parametrize(
     "change",
     [
-        dict(season_number=2),
-        dict(episode_number=True),
-        dict(show_id=2),
-        dict(episode_number=0),
+        {"season_number": 2},
+        {"episode_number": True},
+        {"show_id": 2},
+        {"episode_number": 0},
     ],
 )
 def test_invalid_episode_response(monkeypatch, change):
-    row = dict(season_number=1, episode_number=1, show_id=1405, name="Dexter")
+    row = {"season_number": 1, "episode_number": 1, "show_id": 1405, "name": "Dexter"}
     row.update(change)
     monkeypatch.setattr(
-        tmdb, "_get", lambda *a, **k: dict(season_number=1, episodes=[row])
+        tmdb, "_get", lambda *a, **k: {"season_number": 1, "episodes": [row]}
     )
     with pytest.raises(tmdb.TMDBError):
         tmdb.season_details(1405, 1)
 
 
 def test_duplicate_episode_numbers(monkeypatch):
-    row = dict(season_number=1, episode_number=1, show_id=1405)
+    row = {"season_number": 1, "episode_number": 1, "show_id": 1405}
     monkeypatch.setattr(
-        tmdb, "_get", lambda *a, **k: dict(season_number=1, episodes=[row, dict(row)])
+        tmdb, "_get", lambda *a, **k: {"season_number": 1, "episodes": [row, dict(row)]}
     )
     with pytest.raises(tmdb.TMDBError):
         tmdb.season_details(1405, 1)

@@ -26,7 +26,7 @@ def settings():
 
 
 def collect_settings(payload, updates):
-    from .settings_store import SettingsError, SECRET_PLACEHOLDER
+    from .settings_store import SECRET_PLACEHOLDER, SettingsError
 
     if not isinstance(payload, dict):
         raise SettingsError("Jellyfin settings must be an object")

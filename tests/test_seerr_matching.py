@@ -5,24 +5,24 @@ from h0melab.web import seerr_matching as matching
 
 @pytest.fixture
 def identity():
-    return dict(
-        media_type="movie",
-        tmdb_id=157336,
-        imdb_id="tt0816692",
-        title="Interstellar",
-        release_year=2014,
-    )
+    return {
+        "media_type": "movie",
+        "tmdb_id": 157336,
+        "imdb_id": "tt0816692",
+        "title": "Interstellar",
+        "release_year": 2014,
+    }
 
 
 def test_title_alone_is_not_evidence(identity):
     assert not matching.assess_candidate(
-        identity, dict(media_type="movie", title="Interstellar")
+        identity, {"media_type": "movie", "title": "Interstellar"}
     )["eligible"]
 
 
 def test_exact_title_and_year(identity):
     assert matching.assess_candidate(
-        identity, dict(media_type="movie", title="Interstellar", year=2014)
+        identity, {"media_type": "movie", "title": "Interstellar", "year": 2014}
     )["eligible"]
 
 
@@ -37,25 +37,25 @@ def test_exact_title_and_year(identity):
     ],
 )
 def test_conflicts_override_title_score(identity, field, value):
-    hit = dict(
-        media_type="movie",
-        title="Interstellar",
-        year=2014,
-        tmdb_id=157336,
-        imdb_id="tt0816692",
-    )
+    hit = {
+        "media_type": "movie",
+        "title": "Interstellar",
+        "year": 2014,
+        "tmdb_id": 157336,
+        "imdb_id": "tt0816692",
+    }
     hit[field] = value
     result = matching.assess_candidate(identity, hit)
     assert result["conflict"] and not result["eligible"]
 
 
 def test_id_still_requires_type(identity):
-    assert not matching.assess_candidate(identity, dict(tmdb_id=157336))["eligible"]
+    assert not matching.assess_candidate(identity, {"tmdb_id": 157336})["eligible"]
 
 
 def test_multiple_matching_sources_require_review(identity):
     hits = [
-        dict(media_type="movie", tmdb_id=157336, url=url)
+        {"media_type": "movie", "tmdb_id": 157336, "url": url}
         for url in ("https://one", "https://two")
     ]
     assert matching.choose_candidate(identity, hits) is None
@@ -64,16 +64,17 @@ def test_multiple_matching_sources_require_review(identity):
 
 def test_no_fuzzy_alias_or_remake_selection(identity):
     assert not matching.assess_candidate(
-        identity, dict(media_type="movie", title="Interstellar 2", year=2014)
+        identity, {"media_type": "movie", "title": "Interstellar 2", "year": 2014}
     )["eligible"]
     assert not matching.assess_candidate(
-        identity, dict(media_type="movie", title="Interstellar", year=2024)
+        identity, {"media_type": "movie", "title": "Interstellar", "year": 2024}
     )["eligible"]
 
 
 def test_metadata_failure_is_not_ignored(identity):
     assert not matching.assess_candidate(
-        identity, dict(media_type="movie", tmdb_id=157336, metadata_error="timeout")
+        identity,
+        {"media_type": "movie", "tmdb_id": 157336, "metadata_error": "timeout"},
     )["eligible"]
 
 
@@ -88,21 +89,27 @@ def test_metadata_failure_is_not_ignored(identity):
     ],
 )
 def test_episode_contradiction(change):
-    identity = dict(tmdb_id=1405, imdb_id="tt0773262")
-    episode = dict(
-        series_tmdb_id=1405, season_number=1, episode_number=1, name="Dexter"
-    )
-    row = dict(season_number=1, episode_number=1, title_en="Dexter")
+    identity = {"tmdb_id": 1405, "imdb_id": "tt0773262"}
+    episode = {
+        "series_tmdb_id": 1405,
+        "season_number": 1,
+        "episode_number": 1,
+        "name": "Dexter",
+    }
+    row = {"season_number": 1, "episode_number": 1, "title_en": "Dexter"}
     row.update(change)
     assert not matching.assess_episode(identity, episode, row)["eligible"]
 
 
 def test_episode_mapping_needs_real_evidence():
-    identity = dict(tmdb_id=1405)
-    episode = dict(
-        series_tmdb_id=1405, season_number=1, episode_number=1, name="Dexter"
-    )
-    row = dict(season_number=1, episode_number=1, title_en="Episode 1")
+    identity = {"tmdb_id": 1405}
+    episode = {
+        "series_tmdb_id": 1405,
+        "season_number": 1,
+        "episode_number": 1,
+        "name": "Dexter",
+    }
+    row = {"season_number": 1, "episode_number": 1, "title_en": "Episode 1"}
     assert not matching.assess_episode(identity, episode, row)["eligible"]
     row["title_en"] = "Dexter"
     assert matching.assess_episode(identity, episode, row)["eligible"]
@@ -125,7 +132,7 @@ def test_enrichment_reads_model_ids_type_and_year(monkeypatch, identity):
         imdb="tt0816692",
     )
     hit = matching.enrich_candidate(
-        dict(url="https://source/title", title="Interstellar")
+        {"url": "https://source/title", "title": "Interstellar"}
     )
     assert hit["imdb_id"] == "tt0816692"
     assert hit["media_type"] == "movie"
@@ -154,14 +161,14 @@ def test_enrichment_preserves_conflicting_evidence(monkeypatch, identity, field,
 
 def test_enrichment_does_not_guess_type(monkeypatch, identity):
     _provider(monkeypatch, title="Interstellar", release_year=2014, imdb="tt0816692")
-    hit = matching.enrich_candidate(dict(url="https://source/movie/157336"))
+    hit = matching.enrich_candidate({"url": "https://source/movie/157336"})
     assert not hit.get("media_type")
     assert not matching.assess_candidate(identity, hit)["eligible"]
 
 
 def test_enrichment_series_range_is_premiere(monkeypatch):
     _provider(monkeypatch, title="Dexter", is_series=True, release_year="2006-2013")
-    hit = matching.enrich_candidate(dict(url="https://source/title"))
+    hit = matching.enrich_candidate({"url": "https://source/title"})
     assert hit["release_year"] == "2006"
 
 
@@ -170,7 +177,7 @@ def test_enrichment_masks_provider_failure(monkeypatch):
         raise ValueError("secret-token-in-url")
 
     monkeypatch.setattr("h0melab.providers.resolve_provider", fail)
-    hit = matching.enrich_candidate(dict(url="https://source/title"))
+    hit = matching.enrich_candidate({"url": "https://source/title"})
     assert hit["metadata_error"] == "Provider metadata could not be verified"
     assert "secret-token" not in str(hit)
 
@@ -178,7 +185,7 @@ def test_enrichment_masks_provider_failure(monkeypatch):
 def test_enrichment_checks_external_id_disagreement(monkeypatch, identity):
     _provider(monkeypatch, title="Interstellar", is_movie=True, imdb="tt0816692")
     hit = matching.enrich_candidate(
-        dict(url="https://source/title", external_ids={"imdb_id": "tt0000001"})
+        {"url": "https://source/title", "external_ids": {"imdb_id": "tt0000001"}}
     )
     assert matching.assess_candidate(identity, hit)["conflict"]
 

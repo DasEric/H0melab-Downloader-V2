@@ -695,22 +695,24 @@
 
       <section class="settings-pane" id="pane-integrations" role="tabpanel"
         aria-labelledby="tab-integrations" tabindex="-1" hidden>
-        <section class="card" id="jellyfinSettings">
-          <h2>Jellyfin-Bibliotheksscan</h2>
+        <section class="card integration-settings" id="jellyfinSettings">
+          <h2><i class="fa-solid fa-server" aria-hidden="true"></i> Jellyfin-Bibliotheksscan</h2>
           <p class="hint">Nach jeder neu fertiggestellten Filmdatei oder Serienepisode wird nur die zugeordnete Bibliothek aktualisiert. Leere Server-URL deaktiviert die Integration.</p>
-          <label class="field"><span>Server-URL (aus dem Downloader erreichbar)</span><input id="jellyfinUrl" type="url" placeholder="http://jellyfin:8096" /></label>
-          <label class="field"><span>API-Key</span><input id="jellyfinKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
+          <label class="field"><span class="field-label">Server-URL (aus dem Downloader erreichbar)</span><input id="jellyfinUrl" type="url" placeholder="http://jellyfin:8096" /></label>
+          <label class="field"><span class="field-label">API-Key</span><input id="jellyfinKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
           <label class="checkbox"><input id="jellyfinClearKey" type="checkbox" /> Gespeicherten API-Key löschen</label>
-          <label class="field"><span>Filmbibliothek-ID</span><input id="jellyfinMovie" /></label>
-          <label class="field"><span>Serienbibliothek-ID</span><input id="jellyfinSeries" /></label>
+          <label class="field"><span class="field-label">Filmbibliothek-ID</span><input type="text" id="jellyfinMovie" /></label>
+          <label class="field"><span class="field-label">Serienbibliothek-ID</span><input type="text" id="jellyfinSeries" /></label>
           <p class="hint">Bibliothek-IDs (ItemId) aus Jellyfin /Library/VirtualFolders übernehmen, keine Namen oder Dateipfade. Der Bibliothekstyp wird vor jedem Scan geprüft. Scanfehler ändern keinen erfolgreichen Downloadstatus.</p>
-          <button type="button" class="btn btn-primary" id="saveJellyfin">Jellyfin speichern</button>
-          <p id="jellyfinStatus" role="status" aria-live="polite"></p>
+          <div class="action-row">
+            <button type="button" class="btn btn-primary" id="saveJellyfin">Jellyfin speichern</button>
+          </div>
+          <p class="integration-status hint" id="jellyfinStatus" role="status" aria-live="polite"></p>
         </section>
-        <section class="card" id="seerrSettings">
-          <h2>Seerr</h2>
+        <section class="card integration-settings" id="seerrSettings">
+          <h2><i class="fa-solid fa-inbox" aria-hidden="true"></i> Seerr</h2>
           <label class="checkbox"><input type="checkbox" id="seerrEnabled" /> Seerr aktivieren</label>
-          <label class="field"><span class="field-label">Webhook-Endpunkt</span><input id="seerrEndpoint" readonly /></label>
+          <label class="field"><span class="field-label">Webhook-Endpunkt</span><input type="text" id="seerrEndpoint" readonly /></label>
           <label class="field"><span class="field-label">Webhook-Secret</span><input type="password" id="seerrSecret" autocomplete="new-password" placeholder="Mindestens 32 Zeichen; leer = unverändert" /></label>
           <p class="hint">In Seerr als Authorization-Header: Bearer &lt;Secret&gt;. Nur genehmigte Anfragen werden verarbeitet. Die vorhandenen Film- und Serienziele bleiben maßgeblich.</p>
           <div class="action-row">
@@ -718,7 +720,7 @@
             <button type="button" class="btn btn-secondary" id="testSeerr">Konfiguration prüfen</button>
             <a class="btn btn-secondary" href="{{ url_for('pages.seerr_page') }}">Seerr-Anfragen</a>
           </div>
-          <p id="seerrSettingsStatus" role="status" aria-live="polite"></p>
+          <p class="integration-status hint" id="seerrSettingsStatus" role="status" aria-live="polite"></p>
         </section>
         <section class="card">
           <h2 data-i18n="settings.tmdb">TMDB</h2>

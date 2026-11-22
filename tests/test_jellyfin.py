@@ -1,5 +1,7 @@
 from types import SimpleNamespace
+
 import pytest
+
 from h0melab.web import jellyfin, settings_store
 
 MOVIE = "1" * 32

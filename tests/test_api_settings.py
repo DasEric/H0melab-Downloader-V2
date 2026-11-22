@@ -545,3 +545,32 @@ def test_the_path_preview_needs_an_admin():
     from h0melab.web.views import ADMIN_ENDPOINTS
 
     assert "api.path_preview" in ADMIN_ENDPOINTS
+
+
+def test_integration_settings_use_shared_form_styles(client):
+    from html.parser import HTMLParser
+    from pathlib import Path
+
+    class Inputs(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.fields = {}
+
+        def handle_starttag(self, tag, attrs):
+            attrs = dict(attrs)
+            if tag == "input" and attrs.get("id"):
+                self.fields[attrs["id"]] = attrs
+
+    html = client.get("/settings").get_data(as_text=True)
+    parser = Inputs()
+    parser.feed(html)
+    for name in ("jellyfinMovie", "jellyfinSeries", "seerrEndpoint"):
+        assert parser.fields[name]["type"] == "text"
+    assert parser.fields["jellyfinUrl"]["type"] == "url"
+    assert parser.fields["seerrSecret"]["type"] == "password"
+    assert html.count('class="card integration-settings"') == 2
+    css = (Path(__file__).parents[1] / "src/h0melab/web/static/style.css").read_text(
+        encoding="utf-8"
+    )
+    assert 'input[type="url"],' in css
+    assert ".integration-settings .action-row" in css

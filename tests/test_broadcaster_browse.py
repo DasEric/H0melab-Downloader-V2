@@ -1,5 +1,7 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
+
 from h0melab.models.broadcasters import browse
 from h0melab.web.views import api_media
 
@@ -75,29 +77,69 @@ def test_preview_http_and_template(client, monkeypatch, site):
 def test_dmax_private_origin_rewritten_for_cards_and_details(monkeypatch):
     import base64
     import json
+
     from h0melab.models.broadcasters.dmax import DMAXCollection, poster_url
+
     origin = "https://s3.eu-west-1.amazonaws.com/loma-media-de/dmax-image-test.jpg"
     url = poster_url(origin)
     assert url.startswith("https://d2v9mhsiek5lbq.cloudfront.net/")
     spec = json.loads(base64.b64decode(url.split(".net/", 1)[1]))
     assert spec["bucket"] == "loma-media-de" and spec["key"] == "dmax-image-test.jpg"
     model = DMAXCollection("https://dmax.de/sendungen/example")
-    model.__dict__["data"] = {"metaMedia":[{"role":"default","media":{"url":origin}}]}
+    model.__dict__["data"] = {
+        "metaMedia": [{"role": "default", "media": {"url": origin}}]
+    }
     assert model.poster_url == url
-    monkeypatch.setattr(browse.DMAXClient, "site", lambda *a, **kw: {"data":[{
-        "title":"Example", "slug":"example", "parentSlug":"sendungen", "image":{"url":origin}}]})
+    monkeypatch.setattr(
+        browse.DMAXClient,
+        "site",
+        lambda *a, **kw: {
+            "data": [
+                {
+                    "title": "Example",
+                    "slug": "example",
+                    "parentSlug": "sendungen",
+                    "image": {"url": origin},
+                }
+            ]
+        },
+    )
     assert browse.fetch_dmax_preview()[0]["poster_url"] == url
-    assert poster_url("https://cdn.example/image.jpg") == "https://cdn.example/image.jpg"
+    assert (
+        poster_url("https://cdn.example/image.jpg") == "https://cdn.example/image.jpg"
+    )
 
 
 def test_zdf_embedded_lazy_carousels_more_than_five(monkeypatch):
     import json
-    cards = [{"__typename":"DefaultWithSectionsSmartCollection", "title":f"Show {i}",
-        "tracking":{"piano":{"click":{"target_url":f"https://www.zdf.de/serien/show-{i}-104"}}},
-        "teaser":{"imageWithoutLogo":{"layouts":{"dim640X720":f"https://www.zdf.de/assets/{i}.jpg"}}}}
-        for i in range(30)]
-    html = '<script>self.__next_f.push(' + json.dumps([1, '62:' + json.dumps(cards)]) + ')</script>'
-    monkeypatch.setattr(browse.niquests, "get", lambda *a, **kw: SimpleNamespace(raise_for_status=lambda:None, text=html))
+
+    cards = [
+        {
+            "__typename": "DefaultWithSectionsSmartCollection",
+            "title": f"Show {i}",
+            "tracking": {
+                "piano": {
+                    "click": {"target_url": f"https://www.zdf.de/serien/show-{i}-104"}
+                }
+            },
+            "teaser": {
+                "imageWithoutLogo": {
+                    "layouts": {"dim640X720": f"https://www.zdf.de/assets/{i}.jpg"}
+                }
+            },
+        }
+        for i in range(30)
+    ]
+    html = (
+        "<script>self.__next_f.push("
+        + json.dumps([1, "62:" + json.dumps(cards)])
+        + ")</script>"
+    )
+    monkeypatch.setattr(
+        browse.niquests,
+        "get",
+        lambda *a, **kw: SimpleNamespace(raise_for_status=lambda: None, text=html),
+    )
     rows = browse.fetch_zdf_preview()
     assert len(rows) == 24
     assert len({r["url"] for r in rows}) == 24

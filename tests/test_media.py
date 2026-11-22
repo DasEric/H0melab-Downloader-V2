@@ -280,10 +280,6 @@ def test_retired_provider_tabs_are_absent(client):
     assert 'data-site="filmpalast"' in body
 
 
-
-
-
-
 def test_hiding_a_tab_leaves_its_neighbours_alone(client):
     """The browse rows sit in one list, so a bad {% if %} would swallow them."""
     body = client.get("/").get_data(as_text=True)

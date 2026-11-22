@@ -91,7 +91,7 @@ def test_no_channel_no_message(transport):
 
 
 def test_disabled_notification_is_noop(monkeypatch):
-    monkeypatch.setattr(bot, "_state", dict(loop=None, client=None, config=None))
+    monkeypatch.setattr(bot, "_state", {"loop": None, "client": None, "config": None})
     assert bot.notify_event("Title", "received") is False
     assert bot.notify_completed("Title", "movie", "German Dub", "123") is False
 
@@ -101,7 +101,11 @@ def test_schedule_error_closes_coroutine(monkeypatch, caplog):
     monkeypatch.setattr(
         bot,
         "_state",
-        dict(loop=SimpleNamespace(is_running=lambda: True), client=object(), config={}),
+        {
+            "loop": SimpleNamespace(is_running=lambda: True),
+            "client": object(),
+            "config": {},
+        },
     )
     coroutines = []
 

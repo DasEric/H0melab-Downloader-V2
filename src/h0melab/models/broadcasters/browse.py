@@ -1,12 +1,14 @@
 """Bounded public catalogue previews, reusing existing card/open-title flows."""
 
-from html.parser import HTMLParser
-from urllib.parse import urljoin, urlsplit
 import json
 import re
+from html.parser import HTMLParser
+from urllib.parse import urljoin, urlsplit
+
 import niquests
+
 from .client import BroadcasterError, media_url
-from .dmax import DMAXClient, DMAX_COLLECTION_PATTERN, poster_url
+from .dmax import DMAX_COLLECTION_PATTERN, DMAXClient, poster_url
 
 
 class ZDFCards(HTMLParser):

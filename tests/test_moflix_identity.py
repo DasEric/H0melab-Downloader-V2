@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 import pytest
 
 from h0melab.models.moflix_stream import series as moflix
-from h0melab.web import media_files, db, media_targets, video_library, worker
+from h0melab.web import db, media_files, media_targets, video_library, worker
 from h0melab.web.views import api_media
 
 TITLE_URL = "https://moflix-stream.xyz/titles/42"

@@ -1,5 +1,6 @@
-from h0melab.web import seerr_processing, sitesearch
 import pytest
+
+from h0melab.web import seerr_processing, sitesearch
 
 
 def test_search_exception_does_not_leak_and_is_not_empty_success(monkeypatch, caplog):
@@ -52,15 +53,16 @@ def test_aniworld_failure_is_bounded_and_not_empty_success(monkeypatch, failure)
 
 
 def test_aniworld_valid_empty_response_remains_success(monkeypatch):
-    from h0melab import search
     from types import SimpleNamespace
+
+    from h0melab import search
 
     checked = []
     monkeypatch.setattr(
         search.GLOBAL_SESSION,
         "post",
         lambda *a, **kw: SimpleNamespace(
-            raise_for_status=lambda: checked.append(True), json=lambda: []
+            raise_for_status=lambda: checked.append(True), json=list
         ),
     )
     monkeypatch.setitem(sitesearch.SITE_SEARCH, "aniworld", search.query)

@@ -476,26 +476,27 @@ def test_the_token_can_be_cleared():
     assert settings_store.discord_settings()["token_set"] is False
 
 
-@pytest.mark.parametrize(
-    "field", ["guild_id", "announce_channel_id"]
-)
+@pytest.mark.parametrize("field", ["guild_id", "announce_channel_id"])
 def test_discord_ids_must_be_numeric(field):
     with pytest.raises(SettingsError) as exc:
         update_settings({"discord": {field: "not-a-number"}})
     assert field in str(exc.value)
 
 
-@pytest.mark.parametrize(
-    "field", ["guild_id", "announce_channel_id"]
-)
+@pytest.mark.parametrize("field", ["guild_id", "announce_channel_id"])
 def test_discord_ids_may_be_blank(field):
     update_settings({"discord": {field: ""}})
     assert settings_store.discord_settings()[field] == ""
 
 
 def test_old_discord_request_settings_are_ignored():
-    update_settings({"discord": {"mode": "advanced", "owner_id": "123", "request_role_id": "456"}})
-    assert not {"mode", "owner_id", "request_role_id"} & settings_store.discord_settings().keys()
+    update_settings(
+        {"discord": {"mode": "advanced", "owner_id": "123", "request_role_id": "456"}}
+    )
+    assert (
+        not {"mode", "owner_id", "request_role_id"}
+        & settings_store.discord_settings().keys()
+    )
     assert "H0MELAB_DISCORD_MODE" not in os.environ
 
 

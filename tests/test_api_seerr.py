@@ -17,12 +17,12 @@ def configured(monkeypatch):
 
 @pytest.fixture
 def payload():
-    return dict(
-        notification_type="MEDIA_APPROVED",
-        media_type="movie",
-        media_tmdbid="157336",
-        request_id="12",
-    )
+    return {
+        "notification_type": "MEDIA_APPROVED",
+        "media_type": "movie",
+        "media_tmdbid": "157336",
+        "request_id": "12",
+    }
 
 
 def test_auth_enabled_accepts_webhook_without_session_or_admin(
@@ -279,15 +279,15 @@ def test_request_history_exposes_current_transfer_bytes(
 @pytest.mark.parametrize("kind", ["movie", "tv"])
 @pytest.mark.parametrize("imdb", ["", "tt1234567"])
 def test_readme_webhook_template_contract(client, configured, event, kind, imdb):
-    from pathlib import Path
     import re
+    from pathlib import Path
 
     readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(
         encoding="utf-8"
     )
     templates = [
         json.loads(block)
-        for block in re.findall(r"```json\n(.*?)\n```", readme, re.S)
+        for block in re.findall(r"```json\n(.*?)\n```", readme, re.DOTALL)
         if '"{{extra}}"' in block
     ]
     assert len(templates) == 1

@@ -70,20 +70,16 @@ def _run_owned():
             else:
                 logger.exception("Queue worker error")
             if item:
-                try:
-                    if item.get("source") == "seerr":
-                        from . import seerr_files
-                        from .seerr_processing import stopped
-                        current = db.get_queue_item(item["id"])
-                        # A notification failure after commit must not undo completion.
-                        if current and current["status"] == "running" and not stopped(item):
-                            seerr_files.finish(item, "failed")
-                    else:
-                        db.set_queue_status(item["id"], "failed")
-                except Exception:
-                    # Release ownership so the outer loop can recover a stranded
-                    # running row once the database becomes available again.
-                    raise
+                # Propagate status-write failure so ownership is released and recovery can retry.
+                if item.get("source") == "seerr":
+                    from . import seerr_files
+                    from .seerr_processing import stopped
+                    current = db.get_queue_item(item["id"])
+                    # A notification failure after commit must not undo completion.
+                    if current and current["status"] == "running" and not stopped(item):
+                        seerr_files.finish(item, "failed")
+                else:
+                    db.set_queue_status(item["id"], "failed")
             time.sleep(IDLE_SECONDS)
 
 

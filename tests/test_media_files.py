@@ -1,9 +1,13 @@
 """Shared filesystem protection and video routing regressions."""
+
 import shutil
 import subprocess
 from types import SimpleNamespace
+
 import pytest
+
 from h0melab.web import media_files as files
+
 
 def test_paths_outside_root_and_hardlinks_are_rejected(downloads, tmp_path):
     outside = tmp_path / "outside.mkv"
@@ -15,11 +19,13 @@ def test_paths_outside_root_and_hardlinks_are_rejected(downloads, tmp_path):
     with pytest.raises(ValueError):
         files.checked_path(downloads, linked)
 
+
 def test_variant_filename_is_separate_and_frozen(downloads):
     episode = SimpleNamespace(_media_variant="German Dub")
     first = files.episode_path(episode, downloads / "Title S01E001.mkv")
     assert first.name == "Title S01E001 - german-dub.mkv"
     assert files.episode_path(episode, downloads / "Changed.mkv") == first
+
 
 @pytest.mark.parametrize("collision", [False, True])
 def test_resolution_finalization_never_clobbers_another_file(
@@ -54,6 +60,7 @@ def test_resolution_finalization_never_clobbers_another_file(
         assert target.read_bytes() == b"my new file" and not original.exists()
         assert episode._episode_path == target
 
+
 def test_internal_marker_cannot_be_smuggled_into_legacy_queue(client):
     assert (
         client.post(
@@ -67,6 +74,7 @@ def test_internal_marker_cannot_be_smuggled_into_legacy_queue(client):
         ).status_code
         == 400
     )
+
 
 def test_real_ffprobe_reports_german_and_english_audio(tmp_path, monkeypatch):
     if not shutil.which("ffmpeg") or not shutil.which("ffprobe"):

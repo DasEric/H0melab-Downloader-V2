@@ -635,6 +635,7 @@ h3 {
 
 /* ===== Inputs ===== */
 input[type="text"],
+input[type="url"],
 input[type="password"],
 input[type="search"],
 input[type="number"],
@@ -3156,4 +3157,26 @@ details.advanced summary:hover {
     width: 120px;
     height: 172px;
   }
+}
+
+/* Integration cards use the same input tokens and spacing as other settings. */
+.integration-settings > .field {
+  margin-top: 14px;
+  min-width: 0;
+}
+.integration-settings .field input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+.integration-settings h2 i {
+  color: var(--text-muted);
+  margin-right: 6px;
+}
+.integration-settings .action-row {
+  flex-wrap: wrap;
+}
+.integration-settings .integration-status {
+  margin-top: 14px;
+  overflow-wrap: anywhere;
 }

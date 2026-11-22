@@ -1,5 +1,4 @@
 import html as html_module
-import json
 import os
 import random
 import re

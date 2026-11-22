@@ -18,22 +18,29 @@ def test_retired_provider_is_not_advertised_or_enabled(site, monkeypatch, client
     assert f"enable_{site}" not in settings_store.read_settings()
     assert site not in {row["id"] for row in source_capabilities()["sources"]}
     assert f'data-site="{site}"' not in client.get("/").get_data(as_text=True)
-    assert f'data-setting="enable_{site}"' not in client.get("/settings").get_data(as_text=True)
+    assert f'data-setting="enable_{site}"' not in client.get("/settings").get_data(
+        as_text=True
+    )
     assert site.upper() not in settings_store.export_env()
 
 
-@pytest.mark.parametrize("url", [
-    "https://bs.to/serie/Example",
-    "https://burning-series.io/serie/Example/1/episode/de",
-    "https://kinox.to/Stream/Example.html",
-    "https://www.cineby.at/movie/157336",
-    "https://www.cineby.app/tv/1405/1/1",
-])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://bs.to/serie/Example",
+        "https://burning-series.io/serie/Example/1/episode/de",
+        "https://kinox.to/Stream/Example.html",
+        "https://www.cineby.at/movie/157336",
+        "https://www.cineby.app/tv/1405/1/1",
+    ],
+)
 def test_retired_provider_direct_urls_are_unsupported(url):
     with pytest.raises(ValueError, match="Unsupported URL"):
         resolve_provider(url)
 
 
-@pytest.mark.parametrize("path", ["/api/kinox-movies", "/api/burningseries-series", "/api/cineby-movies"])
+@pytest.mark.parametrize(
+    "path", ["/api/kinox-movies", "/api/burningseries-series", "/api/cineby-movies"]
+)
 def test_retired_browse_routes_are_removed(client, path):
     assert client.get(path).status_code == 404

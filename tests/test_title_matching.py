@@ -379,10 +379,6 @@ def test_an_undecoded_title_would_not_match_its_own_folder():
     )
 
 
-
-
-
-
 def test_every_provider_decodes_entities_in_its_title_path():
     """Checking the file merely contains "unescape" is not enough.
 

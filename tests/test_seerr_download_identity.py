@@ -58,7 +58,7 @@ def gate(monkeypatch):
 def test_changed_or_lost_automatic_evidence_stops_before_bytes(
     gate, monkeypatch, field, value
 ):
-    identity, model, item, entry = gate
+    _identity, model, item, entry = gate
     setattr(model, field, value)
     episode = SimpleNamespace(
         video_identity={"media_type": "movie"},
@@ -72,7 +72,7 @@ def test_changed_or_lost_automatic_evidence_stops_before_bytes(
 
 
 def test_unchanged_idless_automatic_details_are_verified(gate):
-    identity, model, item, entry = gate
+    identity, _model, _item, _entry = gate
     result = seerr_matching.revalidate_selection(
         identity, seerr.get_request(request_id=91)
     )
@@ -82,7 +82,7 @@ def test_unchanged_idless_automatic_details_are_verified(gate):
 
 
 def test_manual_review_permits_same_noncanonical_title_but_not_changed_page(gate):
-    identity, model, item, entry = gate
+    identity, model, _item, entry = gate
     model.title = "Provider localized name"
     seerr.update(
         91,
@@ -101,7 +101,7 @@ def test_manual_review_permits_same_noncanonical_title_but_not_changed_page(gate
 
 
 def test_manual_review_never_overrides_fresh_id_conflict(gate):
-    identity, model, item, entry = gate
+    identity, model, _item, _entry = gate
     seerr.update(91, review_reason="Reviewed provider manually")
     model.tmdb_id = 99
     with pytest.raises(ValueError, match="Fresh provider identity conflicts"):
@@ -109,7 +109,7 @@ def test_manual_review_never_overrides_fresh_id_conflict(gate):
 
 
 def test_changed_reviewed_release_date_requires_new_review(gate):
-    identity, model, item, entry = gate
+    identity, model, _item, entry = gate
     model.release_date = "2020-01-01"
     seerr.update(
         91,

@@ -495,7 +495,7 @@ def _persist_settings(updates):
 # Read / write
 # ---------------------------------------------------------------------------
 def read_settings():
-    from . import seerr, jellyfin
+    from . import jellyfin, seerr
 
     return {
         "download_path": str(paths.default_download_path()),

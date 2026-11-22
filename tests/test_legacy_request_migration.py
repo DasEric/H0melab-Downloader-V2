@@ -107,9 +107,11 @@ def test_migration_failure_rolls_back_original_tables_and_queue(
                 raise sqlite3.OperationalError("injected migration failure")
             return result
 
-    with pytest.raises(sqlite3.OperationalError, match="injected migration failure"):
-        with db.session() as conn:
-            legacy_migration.retire_request_integration(InterruptedConnection(conn))
+    with (
+        pytest.raises(sqlite3.OperationalError, match="injected migration failure"),
+        db.session() as conn,
+    ):
+        legacy_migration.retire_request_integration(InterruptedConnection(conn))
     with db.session() as conn:
         assert (
             dict(
