@@ -61,7 +61,7 @@
       </a>
       {% endif %}
       {% if not auth_enabled or (current_user and current_user.role == 'admin') %}
-      <a href="{{ url_for('pages.seerr_page') }}" class="top-bar-link">Seerr</a>
+      <a href="{{ url_for('pages.seerr_page') }}" class="top-bar-link"><i class="fa-solid fa-inbox" aria-hidden="true"></i><span>Seerr</span></a>
       <a href="{{ url_for('pages.upcoming') }}" class="top-bar-link has-ribbon{% if page_name == 'upcoming' %} active{% endif %}"><i class="fa-solid fa-calendar-check" aria-hidden="true"></i>
         <span data-i18n="nav.upcoming">Upcoming</span>
         <span class="new-ribbon" aria-hidden="true">New</span>
