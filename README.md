@@ -471,3 +471,14 @@ wie vereinbart selbst durch:
 5. Discord-Meldungen, manuelle Prüfung und Retry testen. Erst danach regulär nutzen.
 Docker-Build/-Start, echte Provider-/Seerr-/Jellyfin-/Discord-Kompatibilität und
 Browserrendering sind nicht als hier durchgeführte Live-Abnahme ausgewiesen.
+
+
+### Seerr-Secret automatisch erzeugen und austauschen
+Beim Öffnen der Integrationseinstellungen wird nur dann ein Secret-Entwurf erzeugt,
+wenn noch keines gespeichert ist. Der Browser nutzt `crypto.getRandomValues` für
+32 zufällige Bytes (64 Hex-Zeichen). Bestehende Secrets bleiben unverändert.
+**Secret kopieren**, danach **Speichern** und in Seerr als `Bearer <Secret>` eintragen.
+**Neu generieren** erzeugt einen neuen Entwurf; eigene Secrets bleiben ebenfalls möglich.
+Beim Speichern eines Ersatzes verliert das alte Secret seine Gültigkeit. Aktualisiere
+dann den Header in Seerr. Gespeicherte Secrets werden nicht wieder ausgelesen.
+Bei HTTP ohne Clipboard-Unterstützung markiert die Kopierfunktion den Entwurf für Strg+C.

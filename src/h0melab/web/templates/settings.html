@@ -714,6 +714,12 @@
           <label class="checkbox"><input type="checkbox" id="seerrEnabled" /> Seerr aktivieren</label>
           <label class="field"><span class="field-label">Webhook-Endpunkt</span><input type="text" id="seerrEndpoint" readonly /></label>
           <label class="field"><span class="field-label">Webhook-Secret</span><input type="password" id="seerrSecret" autocomplete="new-password" placeholder="Mindestens 32 Zeichen; leer = unverändert" /></label>
+          <div class="action-row">
+            <button type="button" class="btn btn-secondary" id="generateSeerrSecret">Neu generieren</button>
+            <button type="button" class="btn btn-secondary" id="showSeerrSecret" aria-controls="seerrSecret" aria-pressed="false">Anzeigen</button>
+            <button type="button" class="btn btn-secondary" id="copySeerrSecret">Secret kopieren</button>
+          </div>
+          <p class="hint">Ohne gespeichertes Secret wird automatisch ein zufälliger Entwurf erzeugt. Erst „Speichern“ aktiviert ihn. Vorher kopieren: Gespeicherte Secrets werden nicht erneut angezeigt. Beim Austausch auch den Authorization-Header in Seerr aktualisieren; das alte Secret gilt danach nicht mehr.</p>
           <p class="hint">In Seerr als Authorization-Header: Bearer &lt;Secret&gt;. Nur genehmigte Anfragen werden verarbeitet. Die vorhandenen Film- und Serienziele bleiben maßgeblich.</p>
           <div class="action-row">
             <button type="button" class="btn btn-primary" id="saveSeerr">Speichern</button>
