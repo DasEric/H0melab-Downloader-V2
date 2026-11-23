@@ -98,6 +98,7 @@ def retry_later(item, provider=False):
 
 def candidates(identity):
     found = {}
+    search_failed = False
     sites = sitesearch.sites_for(identity["media_type"])
     for site in sites:
         if not settings_store.site_enabled(site):
@@ -107,9 +108,8 @@ def candidates(identity):
                 continue
             results = sitesearch.search(site, title)
             if getattr(results, "error", None):
-                raise ProviderSearchUnavailable(
-                    "Provider search failed; retry after checking provider availability"
-                )
+                search_failed = True
+                continue
             for hit in results[:100]:
                 if hit.get("url") not in found:
                     enriched = seerr_matching.enrich_candidate(hit)
@@ -117,7 +117,12 @@ def candidates(identity):
                         identity, enriched
                     )
                     found[hit["url"]] = enriched
-    return list(found.values())
+    hits = list(found.values())
+    if search_failed and not any(hit["assessment"]["eligible"] for hit in hits):
+        raise ProviderSearchUnavailable(
+            "Provider search failed; retry after checking provider availability"
+        )
+    return hits
 
 
 def episode_rows(hit, seasons):
@@ -368,8 +373,7 @@ def prepare(item):
                     try:
                         future = (
                             bool(air_date)
-                            and date.fromisoformat(air_date)
-                            > datetime.now(UTC).date()
+                            and date.fromisoformat(air_date) > datetime.now(UTC).date()
                         )
                     except (ValueError, TypeError):
                         future = False

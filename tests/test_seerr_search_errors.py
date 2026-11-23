@@ -113,3 +113,102 @@ def test_aniworld_detail_failure_is_not_cached(monkeypatch, kind, suffix, failur
     assert model._html == "<html>verified response</html>"
     assert calls == [(url, {"timeout": 15})] * 2
     assert len(checked) == (2 if failure == "http" else 1)
+
+
+@pytest.mark.parametrize("failed_first", [True, False])
+def test_available_verified_provider_survives_other_search_failure(
+    monkeypatch, failed_first
+):
+    identity = {"media_type": "movie", "title": "Rheingold", "release_year": 2022}
+    hit = {**identity, "url": "https://working/movie"}
+    calls = []
+    monkeypatch.setattr(
+        sitesearch,
+        "sites_for",
+        lambda kind: ["broken", "working"] if failed_first else ["working", "broken"],
+    )
+    monkeypatch.setattr(
+        seerr_processing.settings_store, "site_enabled", lambda site: True
+    )
+    monkeypatch.setattr(
+        seerr_processing.seerr_matching,
+        "enrich_candidate",
+        lambda candidate: dict(candidate),
+    )
+
+    def search(site, title):
+        calls.append(site)
+        return (
+            sitesearch.SearchResults(error="unavailable") if site == "broken" else [hit]
+        )
+
+    monkeypatch.setattr(sitesearch, "search", search)
+    result = seerr_processing.candidates(identity)
+    assert len(result) == 1
+    assert result[0]["assessment"]["eligible"]
+    assert set(calls) == {"broken", "working"}
+
+
+@pytest.mark.parametrize(
+    "hits",
+    [
+        [],
+        [
+            {
+                "media_type": "movie",
+                "title": "Other film",
+                "release_year": 2022,
+                "url": "https://wrong/movie",
+            }
+        ],
+    ],
+)
+def test_partial_search_without_verified_match_still_retries(monkeypatch, hits):
+    monkeypatch.setattr(sitesearch, "sites_for", lambda kind: ["broken", "working"])
+    monkeypatch.setattr(
+        seerr_processing.settings_store, "site_enabled", lambda site: True
+    )
+    monkeypatch.setattr(
+        seerr_processing.seerr_matching,
+        "enrich_candidate",
+        lambda candidate: dict(candidate),
+    )
+    monkeypatch.setattr(
+        sitesearch,
+        "search",
+        lambda site, title: (
+            sitesearch.SearchResults(error="unavailable") if site == "broken" else hits
+        ),
+    )
+    with pytest.raises(seerr_processing.ProviderSearchUnavailable):
+        seerr_processing.candidates(
+            {"media_type": "movie", "title": "Rheingold", "release_year": 2022}
+        )
+
+
+def test_original_title_search_can_recover(monkeypatch):
+    identity = {
+        "media_type": "movie",
+        "title": "Localized",
+        "original_title": "Original",
+        "release_year": 2022,
+    }
+    monkeypatch.setattr(sitesearch, "sites_for", lambda kind: ["working"])
+    monkeypatch.setattr(
+        seerr_processing.settings_store, "site_enabled", lambda site: True
+    )
+    monkeypatch.setattr(
+        seerr_processing.seerr_matching,
+        "enrich_candidate",
+        lambda candidate: dict(candidate),
+    )
+    monkeypatch.setattr(
+        sitesearch,
+        "search",
+        lambda site, title: (
+            sitesearch.SearchResults(error="unavailable")
+            if title == "Localized"
+            else [{**identity, "url": "https://working/movie"}]
+        ),
+    )
+    assert seerr_processing.candidates(identity)[0]["assessment"]["eligible"]
