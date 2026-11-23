@@ -713,6 +713,16 @@
         </section>
         <section class="card integration-settings" id="plexSettings">
           <h2><i class="fa-solid fa-server" aria-hidden="true"></i> Plex-Bibliotheksscan</h2>
+          <div class="action-row">
+            <button type="button" class="btn btn-primary" id="plexLogin">Mit Plex anmelden</button>
+            <button type="button" class="btn btn-secondary" id="plexLoginCancel" hidden>Anmeldung abbrechen</button>
+            <a id="plexAuthLink" target="_blank" rel="noopener noreferrer" hidden>Plex-Anmeldung öffnen</a>
+          </div>
+          <p class="hint">Anmeldung direkt bei Plex, ohne Passwort im Downloader. Danach einen eigenen Server auswählen. Erst „Server übernehmen“ ersetzt die gespeicherte Verbindung; Bibliotheken anschließend auswählen und speichern. Alternativ sind Server-URL und Token unten manuell eintragbar.</p>
+          <div id="plexServerPicker" hidden>
+            <label class="field"><span class="field-label">Plex-Server und Verbindung (vom Downloader erreichbar)</span><select id="plexServers"></select></label>
+            <button type="button" class="btn btn-primary" id="plexSelectServer">Server übernehmen</button>
+          </div>
           <p class="hint">Nach jeder neu fertiggestellten Filmdatei oder Serienepisode wird nur die zugeordnete Bibliothek aktualisiert. Leere Server-URL deaktiviert die Integration.</p>
           <label class="field"><span class="field-label">Server-URL (aus dem Downloader erreichbar)</span><input id="plexUrl" type="url" placeholder="http://plex:32400" /></label>
           <label class="field"><span class="field-label">Plex-Token</span><input id="plexKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
@@ -852,7 +862,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-v1"></script>
+<script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-login-v1"></script>
 <script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>

@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 
 
 def register(bp):
+    bp.add_url_rule("/settings/plex/login/<action>", view_func=plex_login, methods=["POST"])
     bp.add_url_rule("/settings/plex/libraries", view_func=plex_libraries, methods=["POST"])
     bp.add_url_rule(
         "/settings/jellyfin/libraries", view_func=jellyfin_libraries, methods=["POST"]
@@ -286,5 +287,40 @@ def plex_libraries():
     except settings_store.SettingsError as exc:
         return jsonify(error=str(exc)), 400
     response = jsonify(libraries=items)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def plex_login(action):
+    from .. import plex_auth
+
+    secret = request.cookies.get(plex_auth.COOKIE)
+    new_secret = None
+    try:
+        if action == "start":
+            new_secret, result = plex_auth.start(secret)
+        elif action == "poll":
+            result = plex_auth.poll(secret)
+        elif action == "select":
+            payload = request.get_json(silent=True)
+            if not isinstance(payload, dict):
+                raise settings_store.SettingsError("Bitte einen Plex-Server auswählen.")
+            result = plex_auth.select(secret, payload.get("server"))
+        elif action == "cancel":
+            result = plex_auth.cancel(secret)
+        else:
+            return jsonify(error="Unknown Plex login action"), 404
+    except settings_store.SettingsError as exc:
+        response = jsonify(error=str(exc))
+        response.status_code = 400
+    except OSError:
+        response = jsonify(error="Plex-Einstellungen konnten nicht gespeichert werden. Datenträger prüfen.")
+        response.status_code = 500
+    else:
+        response = jsonify(result)
+        if new_secret:
+            response.set_cookie(plex_auth.COOKIE, new_secret, max_age=plex_auth.TTL, httponly=True, secure=request.is_secure, samesite="Strict", path="/")
+        elif action in ("select", "cancel"):
+            response.delete_cookie(plex_auth.COOKIE, path="/")
     response.headers["Cache-Control"] = "no-store"
     return response

@@ -24,6 +24,7 @@ from . import (
 ADMIN_ENDPOINTS = {
     "api.jellyfin_libraries",
     "api.plex_libraries",
+    "api.plex_login",
     "api.seerr_retry",
     "api.seerr_review",
     "pages.seerr_page",
