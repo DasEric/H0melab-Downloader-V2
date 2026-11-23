@@ -721,6 +721,8 @@
           <p class="hint">Anmeldung direkt bei Plex, ohne Passwort im Downloader. Danach einen eigenen Server auswählen. Erst „Server übernehmen“ ersetzt die gespeicherte Verbindung; Bibliotheken anschließend auswählen und speichern. Alternativ sind Server-URL und Token unten manuell eintragbar.</p>
           <div id="plexServerPicker" hidden>
             <label class="field"><span class="field-label">Plex-Server und Verbindung (vom Downloader erreichbar)</span><select id="plexServers"></select></label>
+            <label class="field"><span class="field-label">Eigene Server-Adresse (optional, z. B. lokale IP)</span><input id="plexConnectionUrl" type="url" placeholder="http://192.168.178.59:32400" /></label>
+            <p class="hint">Leer lassen für die ausgewählte Verbindung. Alternativ die vom Downloader erreichbare lokale Plex-Adresse eintragen. Der Token des ausgewählten Servers wird verwendet. Die Verbindung wird vor dem Speichern geprüft.</p>
             <button type="button" class="btn btn-primary" id="plexSelectServer">Server übernehmen</button>
           </div>
           <p class="hint">Nach jeder neu fertiggestellten Filmdatei oder Serienepisode wird nur die zugeordnete Bibliothek aktualisiert. Leere Server-URL deaktiviert die Integration.</p>
@@ -862,7 +864,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-login-v1"></script>
+<script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-login-local-v2"></script>
 <script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>

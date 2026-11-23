@@ -305,7 +305,7 @@ def plex_login(action):
             payload = request.get_json(silent=True)
             if not isinstance(payload, dict):
                 raise settings_store.SettingsError("Bitte einen Plex-Server auswählen.")
-            result = plex_auth.select(secret, payload.get("server"))
+            result = plex_auth.select(secret, payload.get("server"), payload.get("url"))
         elif action == "cancel":
             result = plex_auth.cancel(secret)
         else:

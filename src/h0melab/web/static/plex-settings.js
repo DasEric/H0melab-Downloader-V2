@@ -93,6 +93,7 @@
           if (generation !== loginGeneration) return;
           if (data.status === 'pending') { loginTimer = setTimeout(pollLogin, 2000); return; }
           const select = el('plexServers'); select.replaceChildren();
+          el('plexConnectionUrl').value = '';
           for (const server of data.servers || []) {
             const option = document.createElement('option'); option.value = server.id;
             option.textContent = `${server.name} — ${server.url}`; select.append(option);
@@ -116,7 +117,7 @@
   el('plexSelectServer').addEventListener('click', async () => {
     const button = el('plexSelectServer'); button.disabled = true;
     try {
-      const data = await apiSend('/api/settings/plex/login/select', 'POST', {server: el('plexServers').value});
+      const data = await apiSend('/api/settings/plex/login/select', 'POST', {server: el('plexServers').value, url: el('plexConnectionUrl').value});
       el('plexUrl').value = data.url;
       el('plexKey').value = ''; el('plexClearKey').checked = false;
       choices('plexMovie', data.libraries.filter(row => row.type === 'movies'), '');

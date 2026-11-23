@@ -187,7 +187,7 @@ def poll(secret):
     return _choices(data)
 
 
-def select(secret, selection):
+def select(secret, selection, url=None):
     data = _load(secret)
     if (
         not isinstance(selection, str)
@@ -199,7 +199,14 @@ def select(secret, selection):
     index = int(selection)
     if index >= len(servers):
         raise SettingsError("Bitte einen angebotenen Plex-Server auswählen.")
-    server = servers[index]
+    server = dict(servers[index])
+    if url is not None:
+        if not isinstance(url, str):
+            raise SettingsError("Plex-Server-Adresse muss eine URL sein.")
+        if url.strip():
+            validated = {}
+            plex.collect_settings({"url": url}, validated)
+            server["url"] = validated[plex.KEYS["url"]]
     # Probe from the downloader before replacing any previously working settings.
     rows = plex.libraries({"url": server["url"], "api_key": server["token"]})
     with db.session() as conn:

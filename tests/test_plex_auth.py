@@ -209,3 +209,84 @@ def test_storage_failure_does_not_claim_success(client, cloud, monkeypatch):
     assert "private-server-secret" not in result.get_data(as_text=True)
     assert not plex.settings()["key_set"]
     assert post(client, "poll").status_code == 200
+
+
+def test_local_address_uses_selected_server_token(client, cloud, monkeypatch):
+    import os
+
+    state, _ = cloud
+    post(client, "start")
+    state["claimed"] = True
+    post(client, "poll")
+    calls = []
+
+    def libraries(payload):
+        calls.append(payload)
+        return []
+
+    monkeypatch.setattr(plex, "libraries", libraries)
+    response = post(
+        client, "select", {"server": "0", "url": " http://192.168.178.59:32400/ "}
+    )
+    assert response.status_code == 200
+    assert response.json["url"] == "http://192.168.178.59:32400"
+    assert calls == [{"url": "http://192.168.178.59:32400", "api_key": "server-secret"}]
+    assert os.environ[plex.KEYS["url"]] == response.json["url"]
+    assert os.environ[plex.KEYS["api_key"]] == "server-secret"
+    assert "server-secret" not in response.get_data(as_text=True)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///tmp",
+        "http://user:pass@host",
+        "http://host/?token=secret",
+        "http://host/#secret",
+        123,
+    ],
+)
+def test_invalid_override_keeps_login_and_settings(client, cloud, monkeypatch, url):
+    state, _ = cloud
+    monkeypatch.setenv(plex.KEYS["url"], "http://old:32400")
+    post(client, "start")
+    state["claimed"] = True
+    post(client, "poll")
+    monkeypatch.setattr(
+        plex, "libraries", lambda *args: pytest.fail("Invalid URL must not connect")
+    )
+    assert post(client, "select", {"server": "0", "url": url}).status_code == 400
+    assert plex.settings()["url"] == "http://old:32400"
+    assert post(client, "poll").status_code == 200
+
+
+def test_failed_local_connection_can_be_corrected(client, cloud, monkeypatch):
+    state, _ = cloud
+    post(client, "start")
+    state["claimed"] = True
+    post(client, "poll")
+
+    def unavailable(payload):
+        raise settings_store.SettingsError("Connection failed")
+
+    monkeypatch.setattr(plex, "libraries", unavailable)
+    assert (
+        post(client, "select", {"server": "0", "url": "http://wrong:32400"}).status_code
+        == 400
+    )
+    assert not plex.settings()["key_set"]
+    monkeypatch.setattr(plex, "libraries", lambda payload: [])
+    assert (
+        post(client, "select", {"server": "0", "url": "http://nas:32400"}).status_code
+        == 200
+    )
+
+
+def test_empty_override_uses_discovered_connection(client, cloud):
+    state, _ = cloud
+    post(client, "start")
+    state["claimed"] = True
+    post(client, "poll")
+    response = post(client, "select", {"server": "0", "url": " "})
+    assert response.status_code == 200
+    assert response.json["url"] == "http://nas:32400"
