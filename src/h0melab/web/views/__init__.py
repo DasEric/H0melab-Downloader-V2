@@ -23,6 +23,7 @@ from . import (
 # Endpoints that need an admin account rather than just a login.
 ADMIN_ENDPOINTS = {
     "api.jellyfin_libraries",
+    "api.plex_libraries",
     "api.seerr_retry",
     "api.seerr_review",
     "pages.seerr_page",

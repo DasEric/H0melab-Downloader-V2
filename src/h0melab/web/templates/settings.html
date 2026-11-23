@@ -711,6 +711,22 @@
           </div>
 
         </section>
+        <section class="card integration-settings" id="plexSettings">
+          <h2><i class="fa-solid fa-server" aria-hidden="true"></i> Plex-Bibliotheksscan</h2>
+          <p class="hint">Nach jeder neu fertiggestellten Filmdatei oder Serienepisode wird nur die zugeordnete Bibliothek aktualisiert. Leere Server-URL deaktiviert die Integration.</p>
+          <label class="field"><span class="field-label">Server-URL (aus dem Downloader erreichbar)</span><input id="plexUrl" type="url" placeholder="http://plex:32400" /></label>
+          <label class="field"><span class="field-label">Plex-Token</span><input id="plexKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
+          <label class="checkbox"><input id="plexClearKey" type="checkbox" /> Gespeicherten Plex-Token löschen</label>
+          <label class="field"><span class="field-label">Filmbibliothek</span><select id="plexMovie"><option value="">Keine ausgewählt</option></select></label>
+          <label class="field"><span class="field-label">Serienbibliothek</span><select id="plexSeries"><option value="">Keine ausgewählt</option></select></label>
+          <div class="action-row"><button type="button" class="btn btn-secondary" id="loadPlexLibraries" aria-describedby="plexStatus">Bibliotheken laden</button></div>
+          <p class="integration-status hint" id="plexStatus" role="status" aria-live="polite"></p>
+          <p class="hint">Server-URL und Plex-Token eingeben, Bibliotheken laden und auswählen. Ein leerer Plex-Token nutzt den gespeicherten Schlüssel. Laden speichert noch nichts; anschließend „Plex speichern“. Film- und Serienbibliotheken werden nach Typ getrennt.</p>
+          <div class="action-row">
+            <button type="button" class="btn btn-primary" id="savePlex">Plex speichern</button>
+          </div>
+
+        </section>
         <section class="card integration-settings" id="seerrSettings">
           <h2><i class="fa-solid fa-inbox" aria-hidden="true"></i> Seerr</h2>
           <label class="checkbox"><input type="checkbox" id="seerrEnabled" /> Seerr aktivieren</label>
@@ -836,6 +852,7 @@
 {% endblock %}
 
 {% block scripts %}
+<script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-v1"></script>
 <script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>

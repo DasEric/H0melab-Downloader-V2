@@ -495,7 +495,7 @@ def _persist_settings(updates):
 # Read / write
 # ---------------------------------------------------------------------------
 def read_settings():
-    from . import jellyfin, seerr
+    from . import jellyfin, plex, seerr
 
     return {
         "download_path": str(paths.default_download_path()),
@@ -538,6 +538,7 @@ def read_settings():
         "tmdb": tmdb_settings(),
         "seerr": seerr.settings(),
         "jellyfin": jellyfin.settings(),
+        "plex": plex.settings(),
     }
 
 
@@ -705,6 +706,9 @@ def update_settings(data):
         from .seerr import collect_settings
         collect_settings(data["seerr"], updates)
 
+    if "plex" in data:
+        from .plex import collect_settings
+        collect_settings(data["plex"], updates)
     if "jellyfin" in data:
         from .jellyfin import collect_settings
         collect_settings(data["jellyfin"], updates)

@@ -275,8 +275,9 @@ def _process(item):
                 else:
                     episode.download()
                 if refresh_kind:
-                    from . import jellyfin
+                    from . import jellyfin, plex
                     jellyfin.refresh(refresh_kind)
+                    plex.refresh(refresh_kind)
             finally:
                 captcha._local.queue_id = None
                 clear_episode_download_context()

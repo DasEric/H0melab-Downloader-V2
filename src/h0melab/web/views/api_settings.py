@@ -10,6 +10,7 @@ logger = get_logger(__name__)
 
 
 def register(bp):
+    bp.add_url_rule("/settings/plex/libraries", view_func=plex_libraries, methods=["POST"])
     bp.add_url_rule(
         "/settings/jellyfin/libraries", view_func=jellyfin_libraries, methods=["POST"]
     )
@@ -270,6 +271,18 @@ def jellyfin_libraries():
 
     try:
         items = jellyfin.libraries(request.get_json(silent=True))
+    except settings_store.SettingsError as exc:
+        return jsonify(error=str(exc)), 400
+    response = jsonify(libraries=items)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+def plex_libraries():
+    from .. import plex
+
+    try:
+        items = plex.libraries(request.get_json(silent=True))
     except settings_store.SettingsError as exc:
         return jsonify(error=str(exc)), 400
     response = jsonify(libraries=items)
