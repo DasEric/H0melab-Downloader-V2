@@ -189,7 +189,6 @@
     el("typedPathHint").hidden = !preview.typed;
     el("legacyPathHint").hidden = Boolean(preview.typed);
     el("langSeparation").disabled = Boolean(preview.typed);
-    el("movieFolder").disabled = Boolean(preview.typed);
 
     // A template the downloader cannot fill in has no path to show, only a
     // reason, and that reason is what would break the first download

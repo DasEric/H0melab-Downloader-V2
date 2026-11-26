@@ -342,3 +342,18 @@ def test_one_piece_keeps_live_action_and_anime_reservations_separate(client, one
         f"One Piece (1999) - S01E{number:02d} - german-dub.mkv"
         for number in numbers[:2]
     ]
+
+
+MOVIE = {"media_type": "movie", "title": "Your Name", "year": "2016"}
+
+
+def test_typed_movie_path_follows_the_movie_folder_option(tmp_path, monkeypatch):
+    monkeypatch.setenv("H0MELAB_MOVIE_FOLDER", "1")
+    wrapped = tmp_path / "Your Name (2016)" / "Your Name (2016).mkv"
+    assert video_library.output_path(tmp_path, MOVIE) == wrapped
+
+    monkeypatch.setenv("H0MELAB_MOVIE_FOLDER", "0")
+    flat = tmp_path / "Your Name (2016).mkv"
+    assert video_library.output_path(tmp_path, MOVIE) == flat
+    # A movie saved in its own folder earlier is still recognised
+    assert video_library.output_paths(tmp_path, MOVIE) == (flat, wrapped)

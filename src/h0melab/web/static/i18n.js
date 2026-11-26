@@ -13,7 +13,7 @@
     en: {},
     de: {
       "settings.media_destinations": "Film- und Serienziele",
-      "settings.typed_path_hint": "Zentrale Film-/Serienziele sind aktiv. Videos verwenden die geprüften Mounts und die unten gezeigte Titel-/Staffelstruktur, getrennte Sprachdateien und einzelne Filmordner. Der bisherige Downloadpfad und die Ordnerschalter überschreiben diese Ziele nicht.",
+      "settings.typed_path_hint": "Zentrale Film-/Serienziele sind aktiv. Videos verwenden die geprüften Mounts und die unten gezeigte Titel-/Staffelstruktur, getrennte Sprachdateien und – sofern unten aktiviert – einzelne Filmordner. Der bisherige Downloadpfad und die Sprachordner überschreiben diese Ziele nicht.",
       "settings.media_destinations_hint": "Der Inhaltstyp hat Vorrang vor dem Quellenstandard. Bestehende Dateien werden nicht verschoben. Zwei getrennte, nicht ineinander liegende Mounts auswählen.",
       "settings.movie_destination": "Filme",
       "settings.show_destination": "Serien",

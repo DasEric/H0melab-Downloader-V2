@@ -426,14 +426,20 @@ def _identity_year(identity):
     return year
 
 
-def output_path(root, identity):
+def output_path(root, identity, movie_folder=None):
     title = safe_component(identity["title"], "", max_length=100)
     if not title:
         raise ValueError("A verified title is required for the media path")
     year = _identity_year(identity)
     name = f"{title} ({year})" if re.fullmatch(_YEAR, year) else title
     if identity["media_type"] == "movie":
-        return Path(root) / name / (name + ".mkv")
+        if movie_folder is None:
+            from ..models.common.common import movie_folder_enabled
+
+            movie_folder = movie_folder_enabled()
+        if movie_folder:
+            return Path(root) / name / (name + ".mkv")
+        return Path(root) / (name + ".mkv")
     season, episode = identity["season"], identity["episode"]
     number = f"S{season:02d}E{episode:02d}"
     if identity.get("end", episode) != episode:
@@ -442,8 +448,19 @@ def output_path(root, identity):
 
 
 def output_paths(root, identity):
-    """Return the current path and the optional pre-premiere series path."""
+    """Return the current path and an older layout the same title may use.
+
+    For a series that is the pre-premiere path without a year. For a movie it
+    is the other folder layout, so a movie saved before the "own folder"
+    option was switched is still found instead of being downloaded again.
+    """
     primary = output_path(root, identity)
+    if identity["media_type"] == "movie":
+        from ..models.common.common import movie_folder_enabled
+
+        return primary, output_path(
+            root, identity, movie_folder=not movie_folder_enabled()
+        )
     if identity["media_type"] == "series" and re.fullmatch(
         _YEAR, _identity_year(identity)
     ):
