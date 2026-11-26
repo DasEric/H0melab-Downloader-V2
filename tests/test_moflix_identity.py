@@ -406,10 +406,23 @@ def test_movie_does_not_overwrite_an_existing_file(
     assert moflix_source["downloads"] == []
 
 
+def connector_movie(typed_targets, media_type="movie"):
+    return {
+        "url": TITLE_URL,
+        "language": "German Dub",
+        "provider": "MoflixClick",
+        "media_type": media_type,
+        "custom_path_id": typed_targets[0 if media_type == "movie" else 1],
+        "target_root": str(typed_targets[2 if media_type == "movie" else 3]),
+    }
+
+
 @pytest.mark.parametrize("listed", [False, True])
-def test_retired_connector_movie_contract_is_rejected(
+def test_connector_movie_contract_routes_to_movies_and_records_receipt(
     client, moflix_source, typed_targets, monkeypatch, listed
 ):
+    from h0melab.web import connector_files
+
     monkeypatch.setattr(
         media_files,
         "media_streams",
@@ -425,23 +438,38 @@ def test_retired_connector_movie_contract_is_rejected(
         json={
             "connector_protocol": 1,
             "request_key": "moflix-movie-receipt",
-            "episodes": [
-                {
-                    "url": TITLE_URL,
-                    "language": "German Dub",
-                    "provider": "MoflixClick",
-                    "media_type": "movie",
-                    "custom_path_id": typed_targets[0],
-                    "target_root": str(typed_targets[2]),
-                }
-            ],
+            "episodes": [connector_movie(typed_targets)],
         },
     )
-    assert response.status_code == 400, response.get_json()
-    assert "retired" in response.get_json()["error"]
-    assert moflix_source["downloads"] == []
-    assert not list(typed_targets[2].rglob("*.mkv"))
+    assert response.status_code == 200, response.get_json()
+    item = db.get_queue_item(response.get_json()["queue_id"])
+    assert item["payload_version"] == 3
+    worker._process(item)
+    result = db.get_queue_item(item["id"])
+    assert result["status"] == "completed", result["errors"]
+    assert movie_output(typed_targets).is_file()
     assert not list(typed_targets[3].rglob("*.mkv"))
+    receipts = connector_files.query(["moflix-movie-receipt"])
+    assert [(row["media_type"], row["state"]) for row in receipts] == [
+        ("movie", "owned")
+    ]
+
+
+def test_connector_type_that_disagrees_with_the_source_is_rejected(
+    client, moflix_source, typed_targets
+):
+    response = client.post(
+        "/api/download",
+        json={
+            "connector_protocol": 1,
+            "request_key": "moflix-wrong-type",
+            "episodes": [connector_movie(typed_targets, media_type="series")],
+        },
+    )
+    assert response.status_code == 409, response.get_json()
+    assert "type" in response.get_json()["error"]
+    assert db.get_queue() == []
+    assert moflix_source["downloads"] == []
 
 
 def test_download_without_typed_targets_keeps_legacy_movie_path(

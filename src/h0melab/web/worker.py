@@ -98,6 +98,31 @@ def _episode_request(entry):
     return url, extra
 
 
+def _connector_entry(item, entry):
+    """True only for entries the server itself marked during connector admission."""
+    return bool(
+        isinstance(entry, dict)
+        and entry.get("connector_protocol") == 1
+        and item.get("payload_version") in (2, 3)
+        and item.get("request_key")
+    )
+
+
+def _record_connector_file(item, index, output, root, existed, options):
+    """Store the exact-file receipt and reject a file with the wrong audio."""
+    from . import connector_files
+
+    connector_files.record(item, index, output, root, existed, options)
+    if (
+        not existed
+        and connector_files.audio_matches(
+            connector_files.media_streams(output), options["language"]
+        )
+        is False
+    ):
+        raise ValueError("Downloaded audio does not match the requested language")
+
+
 def _build_episode(url, extra, item, selected_path):
     url = video_library.variant_url(url, item["language"], item["provider"])
     provider = resolve_provider(url)
@@ -170,6 +195,25 @@ def _process(item):
                     return
             entry_options = dict(item)
             entry_path = selected_path
+            connector_entry = _connector_entry(item, entry)
+            if connector_entry:
+                # Each connector entry carries its own verified variant and target.
+                entry_options.update(
+                    {
+                        key: entry[key]
+                        for key in (
+                            "language",
+                            "provider",
+                            "media_type",
+                            "custom_path_id",
+                        )
+                        if key in entry
+                    }
+                )
+                if not media_targets.read()["enabled"]:
+                    raise ValueError(
+                        "Movie/show destinations were removed; configure them and retry"
+                    )
             if item.get("source") != "seerr":
                 provider, episode = _build_episode(url, extra, entry_options, entry_path)
             if item.get("source") == "seerr":
@@ -267,11 +311,22 @@ def _process(item):
                     )
                     video_library.reserve_output(output, episode._video_identity)
                     with media_files.file_operation(output):
-                        if not output.exists():
+                        existed = output.exists()
+                        # Never remux or overwrite another request's existing file.
+                        if not existed:
                             output.parent.mkdir(parents=True, exist_ok=True)
                             episode.download()
                             if output.is_file() and output.stat().st_size > 0:
                                 refresh_kind = episode._video_identity["media_type"]
+                        if connector_entry:
+                            _record_connector_file(
+                                item,
+                                index,
+                                output,
+                                episode._video_root,
+                                existed,
+                                entry_options,
+                            )
                 else:
                     episode.download()
                 if refresh_kind:

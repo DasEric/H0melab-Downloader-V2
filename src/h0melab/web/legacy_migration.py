@@ -1,61 +1,93 @@
-"""Lossless retirement of the old external request contract.
+"""Lossless return of the Jellyfin connector integration.
 
-Archive rows and original schemas before dropping its exclusive tables. No
-media files or queue history are removed. Active legacy requests require review.
+Version 2.4.0 archived the connector tables into ``migration_archive`` and parked
+active connector jobs as ``legacy_review``. The connector is supported again, so
+this migration restores exactly what was archived instead of retiring it on every
+start. The archive itself is kept. Nothing is restored over newer data: an
+existing table or a job that is no longer parked stays untouched.
 """
 
 import json
+import re
+
+_TABLES = ("connector_state", "connector_artifacts")
+_IDENTIFIER = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 
 
-def retire_request_integration(conn):
+def restore_connector_integration(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS migration_archive (
         name TEXT PRIMARY KEY, schema_sql TEXT NOT NULL, rows_json TEXT NOT NULL,
         archived_at TEXT NOT NULL DEFAULT (datetime('now')))""")
-    for table in ("connector_state", "connector_artifacts"):
-        definition = conn.execute(
-            "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (table,)
-        ).fetchone()
-        if definition is None:
-            continue
-        rows = [dict(row) for row in conn.execute(f'SELECT * FROM "{table}"')]
-        conn.execute(
-            "INSERT INTO migration_archive(name,schema_sql,rows_json) VALUES (?,?,?)",
-            (table, definition[0], json.dumps(rows)),
-        )
-        conn.execute(f'DROP TABLE "{table}"')
+    for table in _TABLES:
+        _restore_table(conn, table)
+    _restore_parked_requests(conn)
 
-    for row in conn.execute("SELECT * FROM download_queue").fetchall():
+
+def _restore_table(conn, table):
+    if conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)
+    ).fetchone():
+        return
+    archived = conn.execute(
+        "SELECT schema_sql, rows_json FROM migration_archive WHERE name=?", (table,)
+    ).fetchone()
+    if archived is None:
+        return
+    schema = archived[0]
+    # Only the original definition of this very table is replayed.
+    if not re.match(rf'\s*CREATE TABLE\s+"?{table}"?\s*\(', schema, re.IGNORECASE):
+        raise ValueError(f"Archived schema for {table} is not a table definition")
+    rows = json.loads(archived[1])
+    if not isinstance(rows, list):
+        raise TypeError(f"Archived rows for {table} are invalid")
+    conn.execute(schema)
+    for row in rows:
+        if not isinstance(row, dict) or not row:
+            raise ValueError(f"Archived row for {table} is invalid")
+        columns = list(row)
+        if any(not _IDENTIFIER.fullmatch(column) for column in columns):
+            raise ValueError(f"Archived column for {table} is invalid")
+        conn.execute(
+            f'INSERT INTO "{table}" ({",".join(columns)}) '
+            f"VALUES ({','.join('?' for _ in columns)})",
+            [row[column] for column in columns],
+        )
+
+
+def _restore_parked_requests(conn):
+    parked = conn.execute(
+        "SELECT id FROM download_queue WHERE source='legacy_review'"
+    ).fetchall()
+    for (queue_id,) in parked:
+        archived = conn.execute(
+            "SELECT rows_json FROM migration_archive WHERE name=?",
+            (f"retired-request:{queue_id}",),
+        ).fetchone()
+        if archived is None:
+            continue
         try:
-            entries = json.loads(row["episodes"])
-        except (ValueError, TypeError):
+            original = json.loads(archived[0])
+            entries = json.loads(original["episodes"])
+        except (ValueError, TypeError, KeyError):
             continue
         if not isinstance(entries, list) or not any(
-            isinstance(entry, dict) and "connector_protocol" in entry
+            isinstance(entry, dict) and entry.get("connector_protocol") == 1
             for entry in entries
         ):
             continue
+        status = original.get("status")
+        # A job that was running when parked restarts from its saved progress.
+        if status == "running":
+            status = "queued"
         conn.execute(
-            "INSERT OR IGNORE INTO migration_archive(name,schema_sql,rows_json) VALUES (?, ?, ?)",
-            (f"retired-request:{row['id']}", "download_queue", json.dumps(dict(row))),
+            "UPDATE download_queue SET episodes=?, source=?, status=?, "
+            "pause_requested=?, errors=? WHERE id=? AND source='legacy_review'",
+            (
+                original["episodes"],
+                original.get("source") or "manual",
+                status or "queued",
+                int(original.get("pause_requested") or 0),
+                original.get("errors") or "[]",
+                queue_id,
+            ),
         )
-        for entry in entries:
-            if isinstance(entry, dict):
-                entry.pop("connector_protocol", None)
-        if row["status"] in ("queued", "running"):
-            try:
-                errors = json.loads(row["errors"] or "[]")
-            except (ValueError, TypeError):
-                errors = []
-            if not isinstance(errors, list):
-                errors = []
-            errors.append({"error": "Retired request integration: review and resubmit through Seerr"})
-            conn.execute(
-                "UPDATE download_queue SET episodes=?, source='legacy_review', "
-                "status='queued',pause_requested=1,errors=? WHERE id=?",
-                (json.dumps(entries), json.dumps(errors), row["id"]),
-            )
-        else:
-            conn.execute(
-                "UPDATE download_queue SET episodes=? WHERE id=?",
-                (json.dumps(entries), row["id"]),
-            )

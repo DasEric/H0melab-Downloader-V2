@@ -1,5 +1,14 @@
 # Changes
 
+## 2.5.0
+
+- Restore the AniWorld-Jellyfin-Connector interface alongside Seerr: `GET /api/connector/capabilities`, exact-file receipts (`/api/connector/artifacts/query`, `/api/connector/artifacts/delete`) and the shared-mount check (`/api/connector/path-probe`). All need full access.
+- Accept `connector_protocol: 1` on `POST /api/download` again. Each entry keeps its verified language, provider and destination; a type that disagrees with the source's own identity is rejected.
+- Connector movie/show requests require the central movie and show destinations. A site default (for example MegaKino → movies) never receives a detected show; jobs stop instead of guessing when the destinations are removed later.
+- Record a receipt for every connector file, never for a file that already existed, and fail an entry whose audio does not match the requested language.
+- Replace the 2.4.0 retirement migration with a lossless restore: archived receipts and the connector instance ID return from `migration_archive`, and connector jobs parked as `legacy_review` resume with their original state. Newer data is never overwritten and the archive is kept.
+- Update the downloader first, then install AniWorld-Jellyfin-Connector 2.0.0 or newer.
+
 ## 2.4.0
 
 - Add configurable, type-verified Jellyfin library refresh after newly completed movie/episode files; scan failures do not fail downloads.

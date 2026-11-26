@@ -1,6 +1,6 @@
 # H0melab Downloader v2
 
-[![Version](https://img.shields.io/badge/version-2.4.0-2563eb)](https://github.com/DasEric/H0melab-Downloader-V2/releases)
+[![Version](https://img.shields.io/badge/version-2.5.0-2563eb)](https://github.com/DasEric/H0melab-Downloader-V2/releases)
 [![Tests](https://github.com/DasEric/H0melab-Downloader-V2/actions/workflows/tests.yaml/badge.svg)](https://github.com/DasEric/H0melab-Downloader-V2/actions/workflows/tests.yaml)
 [![License](https://img.shields.io/github/license/DasEric/H0melab-Downloader-V2)](LICENSE)
 
@@ -165,7 +165,7 @@ Administrators can import or edit a theme under **Settings → Appearance**. The
 
 ### Seerr and Discord
 
-Seerr is the user request platform in 2.4.0. Configure its authenticated webhook under **Settings → Integrations → Seerr**; see the detailed setup below. The former AniWorld-Jellyfin-Connector API and Discord request commands have been retired. Discord remains an optional notification transport.
+Seerr and the [AniWorld-Jellyfin-Connector](https://github.com/DasEric/AniWorld-Jellyfin-Connector) are both supported request front ends. Configure Seerr's authenticated webhook under **Settings → Integrations → Seerr**; see the detailed setup below. The Jellyfin connector uses a full-access API key and requires the movie/show destinations below. Discord request commands have been retired; Discord remains an optional notification transport.
 
 ### Movie/show destinations and grouped series
 
@@ -247,9 +247,9 @@ Licensed under the [MIT License](LICENSE).
 ## Seerr-Integration (2.4.0)
 
 Seerr nimmt Benutzeranfragen entgegen; Discord dient nur noch Benachrichtigungen.
-Die alte Connector-API wurde entfernt. Bestehende Downloadhistorie bleibt erhalten;
-exklusive alte Connector-Belege werden in SQLite `migration_archive` archiviert.
-Noch aktive alte Connector-Aufträge werden zur Prüfung pausiert.
+Seit 2.5.0 ist der AniWorld-Jellyfin-Connector wieder parallel nutzbar. Die in 2.4.0
+in SQLite `migration_archive` archivierten Connector-Belege und pausierten
+Connector-Aufträge werden dabei verlustfrei wiederhergestellt.
 
 ### Einrichtung
 

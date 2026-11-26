@@ -285,7 +285,7 @@ def test_queue_rechecks_destination_revision_before_writing(client, flat, target
     assert not list(targets[3].rglob("*.mkv"))
 
 
-def test_media_targets_require_admin_and_retired_api_is_absent(
+def test_media_targets_and_connector_capabilities_require_admin(
     client, api_key, targets
 ):
     key, _ = api_key("write")
@@ -301,9 +301,15 @@ def test_media_targets_require_admin_and_retired_api_is_absent(
     assert (
         client.get("/api/media-targets", headers=headers).get_json()["enabled"] is True
     )
+    assert client.get("/api/connector/capabilities", headers=headers).status_code == 403
     key, _ = api_key("admin")
     response = client.get("/api/connector/capabilities", headers={"X-API-Key": key})
-    assert response.status_code == 404
+    assert response.status_code == 200
+    capabilities = response.get_json()
+    # The connector reads the same central destinations the native queue uses.
+    assert capabilities["media_targets"]["movie"] == targets[0]
+    assert capabilities["media_targets"]["series"] == targets[1]
+    assert capabilities["protocol"] == 1 and capabilities["file_receipts"] is True
 
 
 def test_more_than_500_episodes_keep_one_request_and_bounded_work_sections(

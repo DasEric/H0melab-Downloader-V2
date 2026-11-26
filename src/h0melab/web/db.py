@@ -356,9 +356,9 @@ def init_db():
             conn.execute(
                 "INSERT INTO upcoming_state(key, value) VALUES ('v2_media_migrated', datetime('now'))"
             )
-        from .legacy_migration import retire_request_integration
+        from .legacy_migration import restore_connector_integration
 
-        retire_request_integration(conn)
+        restore_connector_integration(conn)
     _initialized = True
     _bootstrap_admin()
 
