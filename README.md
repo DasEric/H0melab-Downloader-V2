@@ -458,6 +458,7 @@ H0MELAB_JELLYFIN_URL=http://jellyfin:8096
 H0MELAB_JELLYFIN_API_KEY=
 H0MELAB_JELLYFIN_MOVIE_LIBRARY_ID=
 H0MELAB_JELLYFIN_SERIES_LIBRARY_ID=
+H0MELAB_JELLYFIN_MUSIC_LIBRARY_ID=
 ```
 
 API-Referenz: [Jellyfin ItemRefreshController](https://github.com/jellyfin/jellyfin/blob/v10.11.0/Jellyfin.Api/Controllers/ItemRefreshController.cs).

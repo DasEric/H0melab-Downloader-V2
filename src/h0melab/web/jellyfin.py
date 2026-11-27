@@ -1,4 +1,4 @@
-"""Targeted, best-effort Jellyfin library refresh after completed video files."""
+"""Targeted, best-effort Jellyfin library refresh after completed media files."""
 
 import os
 import re
@@ -11,7 +11,7 @@ from ..logger import get_logger
 logger = get_logger(__name__)
 KEYS = {
     name: "H0MELAB_JELLYFIN_" + name.upper()
-    for name in ("url", "api_key", "movie_library_id", "series_library_id")
+    for name in ("url", "api_key", "movie_library_id", "series_library_id", "music_library_id")
 }
 
 
@@ -81,7 +81,7 @@ def _auth_headers(token):
 
 def refresh(media_type):
     """Queue only the configured typed library; never refresh all libraries."""
-    kind = {"movie": "movie", "tv": "series", "series": "series"}.get(media_type)
+    kind = {"movie": "movie", "tv": "series", "series": "series", "music": "music"}.get(media_type)
     if not kind:
         return False
     try:
@@ -106,7 +106,7 @@ def refresh(media_type):
                 raise ValueError("Library discovery failed")
             folders = response.json()
             normalize = lambda value: str(value).replace("-", "").lower()
-            expected = "movies" if kind == "movie" else "tvshows"
+            expected = {"movie": "movies", "series": "tvshows", "music": "music"}[kind]
             if not isinstance(folders, list) or not any(
                 isinstance(folder, dict)
                 and normalize(folder.get("ItemId")) == normalize(library)
@@ -197,6 +197,7 @@ def libraries(payload):
             if not isinstance(row, dict) or row.get("CollectionType") not in (
                 "movies",
                 "tvshows",
+                "music",
             ):
                 continue
             ident = row.get("ItemId")

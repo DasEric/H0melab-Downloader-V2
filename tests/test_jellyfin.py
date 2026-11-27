@@ -167,7 +167,7 @@ def test_library_choices_use_draft_key_without_saving(client, monkeypatch):
     )
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
-    assert len(response.get_json()["libraries"]) == 2
+    assert [row["type"] for row in response.get_json()["libraries"]] == ["movies", "tvshows", "music"]
     assert calls[0][0] == "http://jellyfin:8096/base/Library/VirtualFolders"
     assert calls[0][1]["headers"] == {
         "Authorization": 'MediaBrowser Token="draft-secret"'
@@ -259,3 +259,29 @@ def test_library_network_diagnostics(client, configured, monkeypatch, kind, expe
     response = client.post("/api/settings/jellyfin/libraries", json={})
     assert expected in response.get_json()["error"]
     assert "private-key-and-url" not in response.get_data(as_text=True)
+
+
+def test_music_refresh_targets_the_music_library(monkeypatch):
+    monkeypatch.setenv(jellyfin.KEYS["url"], "http://jellyfin:8096")
+    monkeypatch.setenv(jellyfin.KEYS["api_key"], "secret")
+    monkeypatch.setenv(jellyfin.KEYS["music_library_id"], "3" * 32)
+    posts = []
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def get(self, url, **kw):
+            return SimpleNamespace(status_code=200, json=lambda: [
+                {"ItemId": "3" * 32, "CollectionType": "music"}])
+
+        def post(self, url, **kw):
+            posts.append(url)
+            return SimpleNamespace(status_code=204)
+
+    monkeypatch.setattr(jellyfin.niquests, "Session", Session)
+    assert jellyfin.refresh("music") is True
+    assert posts == ["http://jellyfin:8096/Items/" + "3" * 32 + "/Refresh"]

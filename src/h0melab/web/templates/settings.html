@@ -707,6 +707,7 @@
           <label class="field"><span class="field-label">Soulseek-Port</span><input id="soulseekPort" type="number" min="1024" max="65534" /></label>
           <p class="hint">Eingehende Verbindungen anderer Nutzer. Wird per UPnP automatisch am Router geöffnet; sonst diesen Port und Port+1 (TCP) weiterleiten. In Docker beide Ports veröffentlichen.</p>
           <label class="checkbox"><input id="soulseekShare" type="checkbox" /> Musik-Ordner im Soulseek-Netz teilen (empfohlen, viele Nutzer laden sonst nicht an dich hoch)</label>
+          <label class="checkbox"><input id="soulseekJellyfin" type="checkbox" /> Alben für Jellyfin sortieren (Musik/Künstler/Album/ mit cover.jpg; danach wird die Jellyfin-Musikbibliothek gescannt)</label>
           <label class="checkbox"><input id="soulseekConvert" type="checkbox" /> Heruntergeladene Musik immer in MP3 umwandeln (FLAC, WAV, M4A, OGG … mit ffmpeg; Tags und Cover bleiben erhalten, das Original wird danach gelöscht)</label>
           <label class="field"><span class="field-label">MP3-Qualität</span><select id="soulseekBitrate">
             <option value="320k">320 kbit/s (beste)</option>
@@ -723,15 +724,16 @@
         </section>
         <section class="card integration-settings" id="jellyfinSettings">
           <h2><i class="fa-solid fa-server" aria-hidden="true"></i> Jellyfin-Bibliotheksscan</h2>
-          <p class="hint">Nach jeder neu fertiggestellten Filmdatei oder Serienepisode wird nur die zugeordnete Bibliothek aktualisiert. Leere Server-URL deaktiviert die Integration.</p>
+          <p class="hint">Nach jeder neu fertiggestellten Filmdatei, Serienepisode oder einsortierten Musik wird nur die zugeordnete Bibliothek aktualisiert. Leere Server-URL deaktiviert die Integration.</p>
           <label class="field"><span class="field-label">Server-URL (aus dem Downloader erreichbar)</span><input id="jellyfinUrl" type="url" placeholder="http://jellyfin:8096" /></label>
           <label class="field"><span class="field-label">API-Key</span><input id="jellyfinKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
           <label class="checkbox"><input id="jellyfinClearKey" type="checkbox" /> Gespeicherten API-Key löschen</label>
           <label class="field"><span class="field-label">Filmbibliothek</span><select id="jellyfinMovie"><option value="">Keine ausgewählt</option></select></label>
           <label class="field"><span class="field-label">Serienbibliothek</span><select id="jellyfinSeries"><option value="">Keine ausgewählt</option></select></label>
+          <label class="field"><span class="field-label">Musikbibliothek</span><select id="jellyfinMusic"><option value="">Keine ausgewählt</option></select></label>
           <div class="action-row"><button type="button" class="btn btn-secondary" id="loadJellyfinLibraries" aria-describedby="jellyfinStatus">Bibliotheken laden</button></div>
           <p class="integration-status hint" id="jellyfinStatus" role="status" aria-live="polite"></p>
-          <p class="hint">Server-URL und API-Key eingeben, Bibliotheken laden und auswählen. Ein leerer API-Key nutzt den gespeicherten Schlüssel. Laden speichert noch nichts; anschließend „Jellyfin speichern“. Film- und Serienbibliotheken werden nach Typ getrennt.</p>
+          <p class="hint">Server-URL und API-Key eingeben, Bibliotheken laden und auswählen. Ein leerer API-Key nutzt den gespeicherten Schlüssel. Laden speichert noch nichts; anschließend „Jellyfin speichern“. Film-, Serien- und Musikbibliotheken werden nach Typ getrennt.</p>
           <div class="action-row">
             <button type="button" class="btn btn-primary" id="saveJellyfin">Jellyfin speichern</button>
           </div>
@@ -891,8 +893,8 @@
 
 {% block scripts %}
 <script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-login-local-v2"></script>
-<script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
-<script defer src="{{ url_for('static', filename='soulseek-settings.js') }}?v={{ app_version }}-soulseek-v4"></script>
+<script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v3"></script>
+<script defer src="{{ url_for('static', filename='soulseek-settings.js') }}?v={{ app_version }}-soulseek-v5"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>
   window.AUTH_ENABLED = {{ auth_enabled | tojson }};

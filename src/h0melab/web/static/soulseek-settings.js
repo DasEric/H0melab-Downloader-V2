@@ -39,6 +39,7 @@
       el('soulseekShare').checked = cfg.share_downloads;
       el('soulseekConvert').checked = cfg.convert_mp3;
       el('soulseekBitrate').value = cfg.mp3_bitrate || '320k';
+      el('soulseekJellyfin').checked = cfg.jellyfin_layout;
     }
     let live = null;
     if (cfg.status && cfg.status.phase === 'running') {
@@ -62,6 +63,7 @@
         share_downloads: el('soulseekShare').checked,
         convert_mp3: el('soulseekConvert').checked,
         mp3_bitrate: el('soulseekBitrate').value,
+        jellyfin_layout: el('soulseekJellyfin').checked,
       };
       if (el('soulseekPassword').value) cfg.password = el('soulseekPassword').value;
       if (!cfg.username) cfg.password = '';

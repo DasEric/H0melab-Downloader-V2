@@ -355,6 +355,8 @@ def converter(monkeypatch, service, music_dir):
 
     monkeypatch.setattr(music_convert, "_ffmpeg", lambda: "ffmpeg")
     monkeypatch.setattr(music_convert, "_run", fake_run)
+    monkeypatch.setenv(music_convert.KEYS["organize"], "0")
+    music_convert._albums.clear()
     return music_convert, runs
 
 
@@ -452,3 +454,77 @@ def test_service_names_files_after_the_remote_file():
                  isinstance(t, ast.Attribute) and t.attr == "naming_strategies" for t in node.targets)]
     names = [element.func.id for element in calls[0].value.elts]
     assert names[0] == "DefaultNamingStrategy"
+
+
+@pytest.fixture
+def library(converter, monkeypatch):
+    """Converter with the Jellyfin layout on, fake tags and a recorded refresh."""
+    from h0melab.web import jellyfin
+
+    music_convert, _ = converter
+    monkeypatch.setenv(music_convert.KEYS["organize"], "1")
+    tags = {}
+    refreshed = []
+    monkeypatch.setattr(music_convert, "_probe", lambda path: tags.get(path.stem, {}))
+    monkeypatch.setattr(jellyfin, "refresh", lambda kind: refreshed.append(kind) or True)
+    return music_convert, tags, refreshed
+
+
+def _listing(music_dir, folder, names, remote="@@music/Peter Fox/Stadtaffe"):
+    album = music_dir / folder
+    album.mkdir(parents=True, exist_ok=True)
+    files = []
+    for index, (local_name, remote_name) in enumerate(names):
+        (album / local_name).write_bytes(b"data")
+        files.append({"id": str(index), "filename": f"{remote}/{remote_name}",
+                      "state": "Completed, Succeeded", "localPath": str(album / local_name)})
+    return [{"username": "alice", "directories": [{"directory": remote, "files": files}]}]
+
+
+def test_albums_are_sorted_into_artist_and_album_folders(library, service, music_dir):
+    music_convert, tags, refreshed = library
+    _, answers = service
+    tags["01 - Alles neu"] = {"album_artist": "Peter Fox", "artist": "Peter Fox feat. X",
+                              "album": "Stadtaffe: Deluxe?"}
+    answers[("GET", "/transfers/downloads")] = _listing(music_dir, "Stadtaffe", [
+        (" (1)", "01 - Alles neu.flac"), ("02 - Haus am See.mp3", "02 - Haus am See.mp3"),
+        ("front.jpg", "front.jpg")])
+    assert music_convert.convert_finished() == 1
+    album = music_dir / "Peter Fox" / "Stadtaffe_ Deluxe_"
+    assert sorted(p.name for p in album.iterdir()) == [
+        "01 - Alles neu.mp3", "02 - Haus am See.mp3", "cover.jpg"]
+    assert not (music_dir / "Stadtaffe").exists()  # the client's folder is tidied up
+    assert refreshed == ["music"]
+    # A second pass finds nothing left to do and does not scan again
+    assert music_convert.convert_finished() == 0 and refreshed == ["music"]
+
+
+def test_untagged_albums_use_the_remote_folders(library, service, music_dir):
+    music_convert = library[0]
+    _, answers = service
+    answers[("GET", "/transfers/downloads")] = _listing(
+        music_dir, "Stadtaffe", [("03.mp3", "03.mp3")], remote="D:/Musik/Peter Fox/Stadtaffe")
+    music_convert.convert_finished()
+    assert (music_dir / "Peter Fox" / "Stadtaffe" / "03.mp3").is_file()
+
+
+def test_existing_files_are_not_overwritten(library, service, music_dir):
+    music_convert = library[0]
+    target = music_dir / "Peter Fox" / "Stadtaffe"
+    target.mkdir(parents=True)
+    (target / "03.mp3").write_bytes(b"old")
+    _, answers = service
+    answers[("GET", "/transfers/downloads")] = _listing(music_dir, "Stadtaffe", [("03.mp3", "03.mp3")])
+    music_convert.convert_finished()
+    assert (target / "03.mp3").read_bytes() == b"old"
+    assert (target / "03 (1).mp3").is_file()
+
+
+def test_jellyfin_layout_setting_round_trip(monkeypatch):
+    from h0melab.web import music_convert
+
+    updates = {}
+    music_convert.collect_settings({"jellyfin_layout": False}, updates)
+    assert updates == {music_convert.KEYS["organize"]: "0"}
+    monkeypatch.setenv(music_convert.KEYS["organize"], "0")
+    assert music_convert.settings()["jellyfin_layout"] is False
