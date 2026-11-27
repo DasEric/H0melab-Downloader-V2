@@ -298,3 +298,36 @@ def test_missing_release_date_does_not_invent_a_conflict(identity):
     assert matching.assess_candidate(
         identity, {"media_type": "movie", "tmdb_id": identity["tmdb_id"]}
     )["eligible"]
+
+
+def test_revalidation_keeps_search_media_type_when_detail_page_omits_it(monkeypatch):
+    """SerienStream/AniWorld detail pages state no type; the search hit does."""
+    from types import SimpleNamespace
+
+    from h0melab import providers
+    from h0melab.web import seerr_matching
+
+    model = SimpleNamespace(imdb="tt0903747", title="Breaking Bad", release_year="2008")
+    monkeypatch.setattr(
+        providers,
+        "resolve_provider",
+        lambda url: SimpleNamespace(series_cls=lambda **kw: model, episode_cls=None),
+    )
+    identity = {
+        "media_type": "tv",
+        "tmdb_id": 1396,
+        "imdb_id": "tt0903747",
+        "title": "Breaking Bad",
+        "release_year": 2008,
+    }
+    hit = {"url": "https://serienstream.to/serie/breaking-bad", "media_type": "series"}
+    for reason in ("", seerr_matching.AUTO_REASON):
+        request = {"selected_url": hit["url"], "candidates": [hit], "review_reason": reason}
+        assert seerr_matching.revalidate_selection(identity, request)["media_type"] == "series"
+    # A detail page that contradicts the search type is still a hard conflict.
+    model.is_movie = True
+    with pytest.raises(seerr_matching.IdentityReviewRequired):
+        seerr_matching.revalidate_selection(
+            identity,
+            {"selected_url": hit["url"], "candidates": [hit], "review_reason": seerr_matching.AUTO_REASON},
+        )

@@ -191,6 +191,9 @@ def hard_conflict(identity, hit):
     kind = _kind(hit.get("media_type"))
     if kind in ("movie", "tv") and kind != identity.get("media_type"):
         return True
+    for note in hit.get("metadata_conflicts") or []:
+        if any(field in note for field in ("media_type", "tmdb_id", "imdb_id")):
+            return True
     for field in ("tmdb_id", "imdb_id"):
         actual, expected = hit.get(field), identity.get(field)
         if actual not in (None, "") and expected not in (None, "") and actual != expected:
@@ -469,7 +472,10 @@ def revalidate_selection(identity, request):
         raise IdentityReviewRequired(
             "Selected provider evidence is missing before download"
         )
-    fresh = enrich_candidate({"url": url})
+    # Detail pages (e.g. SerienStream, AniWorld) often omit the media type that
+    # only the search listing states; carry it over so a contradicting page
+    # still shows up as a metadata conflict instead of a missing type.
+    fresh = enrich_candidate({"url": url, "media_type": previous.get("media_type")})
     assessment = assess_candidate(identity, fresh)
     # An automatic or reviewed pick accepted soft conflicts (e.g. year) already.
     conflict = (
