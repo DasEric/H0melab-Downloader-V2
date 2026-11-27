@@ -607,6 +607,7 @@ def _hls_permissive_input_opts():
                 capture_output=True,
                 text=True,
                 timeout=15,
+                check=False,
             ).stdout
         except Exception:
             help_text = ""
