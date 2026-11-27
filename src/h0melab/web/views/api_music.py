@@ -1,4 +1,4 @@
-"""Music API: Soulseek search and downloads through slskd."""
+"""Music API: Soulseek search, downloads and discovery (own aioslsk service)."""
 
 from flask import jsonify, request, send_file
 
@@ -8,6 +8,7 @@ from .. import soulseek
 def register(bp):
     bp.add_url_rule("/music/status", view_func=music_status)
     bp.add_url_rule("/music/discover", view_func=music_discover)
+    bp.add_url_rule("/music/like", view_func=music_like, methods=["POST"])
     bp.add_url_rule("/music/search", view_func=music_search, methods=["POST"])
     bp.add_url_rule("/music/search/<search_id>", view_func=music_search_state)
     bp.add_url_rule(
@@ -24,7 +25,8 @@ def register(bp):
     bp.add_url_rule(
         "/music/transfers/clear", view_func=music_clear, methods=["POST"]
     )
-    bp.add_url_rule("/settings/soulseek/test", view_func=soulseek_test, methods=["POST"])
+    bp.add_url_rule("/settings/soulseek/restart", view_func=soulseek_restart, methods=["POST"])
+    bp.add_url_rule("/settings/soulseek/update", view_func=soulseek_update, methods=["POST"])
 
 
 def _error(exc):
@@ -32,26 +34,35 @@ def _error(exc):
 
 
 def music_status():
+    from .. import soulseek_runtime
+
     if not soulseek.configured():
         return jsonify({"configured": False})
+    soulseek_runtime.ensure_started()
+    runtime = soulseek_runtime.status()
+    base = {"configured": True, "phase": runtime["phase"], "message": runtime["message"]}
+    if runtime["phase"] != "running":
+        return jsonify({**base, "reachable": False})
     try:
-        return jsonify({"configured": True, **soulseek.status()})
+        return jsonify({**base, **soulseek.status()})
     except soulseek.SoulseekError as exc:
-        return jsonify({"configured": True, "reachable": False, "error": str(exc)})
+        return jsonify({**base, "reachable": False, "error": str(exc)})
 
 
 def music_discover():
-    from .. import music_discover as discover
-    from .api_catalog import _proxy_cover
-
     row = (request.args.get("row") or "").strip()
     try:
-        found = discover.items(row)
-    except discover.DiscoverError as exc:
-        status = 400 if str(exc) == "Unknown row" else 502
-        return jsonify({"error": str(exc)}), status
-    # Same signed proxy as the book covers: the browser never calls Deezer
-    return jsonify({"items": [_proxy_cover(dict(item)) for item in found]})
+        return jsonify({"items": soulseek.discover(row)})
+    except soulseek.SoulseekError as exc:
+        return _error(exc)
+
+
+def music_like():
+    body = request.get_json(silent=True) or {}
+    try:
+        return jsonify({"item": soulseek.like(body.get("item"))})
+    except soulseek.SoulseekError as exc:
+        return _error(exc)
 
 
 def music_search():
@@ -130,14 +141,15 @@ def music_clear():
         return _error(exc)
 
 
-def soulseek_test():
-    """Check the entered (not yet saved) slskd URL and key."""
-    from ..settings_store import SettingsError
+def soulseek_restart():
+    from .. import soulseek_runtime
 
-    body = request.get_json(silent=True)
-    try:
-        return jsonify(soulseek.status(body if isinstance(body, dict) else None))
-    except SettingsError as exc:
-        return jsonify({"error": str(exc)}), 400
-    except soulseek.SoulseekError as exc:
-        return _error(exc)
+    soulseek_runtime.restart()
+    return jsonify(soulseek_runtime.status())
+
+
+def soulseek_update():
+    from .. import soulseek_runtime
+
+    soulseek_runtime.update_now()
+    return jsonify(soulseek_runtime.status())

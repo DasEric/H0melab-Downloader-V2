@@ -24,7 +24,7 @@
   </form>
 
   <div class="music-notice card" id="musicNotice" hidden>
-    <i class="fa-solid fa-plug-circle-xmark" aria-hidden="true"></i>
+    <i class="fa-solid fa-compact-disc" aria-hidden="true"></i>
     <div>
       <strong id="musicNoticeTitle"></strong>
       <p class="hint" id="musicNoticeText"></p>
@@ -45,22 +45,22 @@
 
   <div class="results music-results" id="musicResults" aria-live="polite" hidden></div>
 
-  {# Soulseek has no charts; these come from Deezer and start a Soulseek search. #}
+  {# Everything here comes from the Soulseek network itself. #}
   <div id="musicBrowse">
-    <section class="browse-section" data-row="new_releases">
-      <h2 class="browse-heading" data-i18n="music.new_releases">New &amp; Noteworthy</h2>
+    <section class="browse-section" data-row="recent" hidden>
+      <h2 class="browse-heading" data-i18n="music.row_recent">Recently downloaded</h2>
       <div class="browse-grid"></div>
     </section>
-    <section class="browse-section" data-row="top_albums">
-      <h2 class="browse-heading" data-i18n="music.top_albums">Popular Albums</h2>
+    <section class="browse-section" data-row="personal" hidden>
+      <h2 class="browse-heading" data-i18n="music.row_personal">Recommended for you</h2>
       <div class="browse-grid"></div>
     </section>
-    <section class="browse-section" data-row="top_tracks">
-      <h2 class="browse-heading" data-i18n="music.top_tracks">Popular Songs</h2>
+    <section class="browse-section" data-row="global" hidden>
+      <h2 class="browse-heading" data-i18n="music.row_global">Popular on Soulseek</h2>
       <div class="browse-grid"></div>
     </section>
-    <section class="browse-section" data-row="top_artists">
-      <h2 class="browse-heading" data-i18n="music.top_artists">Popular Artists</h2>
+    <section class="browse-section" data-row="rooms" hidden>
+      <h2 class="browse-heading" data-i18n="music.row_rooms">Busy chat rooms</h2>
       <div class="browse-grid"></div>
     </section>
   </div>
@@ -100,5 +100,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='music.js') }}?v={{ app_version }}-soulseek-v4"></script>
+<script src="{{ url_for('static', filename='music.js') }}?v={{ app_version }}-soulseek-v5"></script>
 {% endblock %}

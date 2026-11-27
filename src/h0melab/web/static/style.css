@@ -3412,14 +3412,31 @@ details.advanced summary:hover {
   color: var(--text-strong);
 }
 
-.music-artist .music-cover img {
-  border-radius: 0;
-}
-
 .poster-card.music-card .music-cover.has-image .music-disc {
   display: none;
 }
 
 .has-soulseek-queue #queueList > .empty-state {
   display: none;
+}
+
+/* Soulseek recommendations are names only: a coloured tile stands in for art */
+.music-cover.music-tile {
+  background: linear-gradient(135deg,
+    hsl(var(--tile-hue, 220) 55% 38%),
+    hsl(calc(var(--tile-hue, 220) + 40) 60% 22%));
+  padding: 14px;
+}
+
+.music-tile-text {
+  font-size: 1.05rem;
+  font-weight: 700;
+  line-height: 1.25;
+  color: var(--text-on-accent);
+  text-align: center;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }

@@ -74,10 +74,13 @@ def no_background_threads(monkeypatch):
     then failed. It shows up as an unrelated test failing on the queue order,
     on a different test each run, and only when the timing lines up.
     """
-    from h0melab.web import autosync, worker
+    from h0melab.web import autosync, soulseek_runtime, worker
 
     monkeypatch.setattr(worker, "ensure_started", lambda: None)
     monkeypatch.setattr(autosync, "ensure_started", lambda: None)
+    # The Soulseek service would install aioslsk and log in to the network
+    monkeypatch.setattr(soulseek_runtime, "ensure_started", lambda: None)
+    monkeypatch.setattr(soulseek_runtime, "start_if_used_before", lambda: None)
 
 
 @pytest.fixture(autouse=True)

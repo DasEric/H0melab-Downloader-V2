@@ -2,44 +2,81 @@
   const el = id => document.getElementById(id);
   if (!el('soulseekSettings')) return;
   const status = text => { el('soulseekStatus').textContent = text; };
+  let timer = null;
 
-  function credentials() {
-    const cfg = {url: el('soulseekUrl').value, music_path: el('soulseekMusicPath').value};
-    if (el('soulseekClearKey').checked) cfg.api_key = '';
-    else if (el('soulseekKey').value) cfg.api_key = el('soulseekKey').value;
-    return cfg;
+  const PHASES = {
+    idle: 'Noch nicht gestartet (startet beim Öffnen des Musik-Tabs)',
+    installing: 'Wird installiert …',
+    starting: 'Startet …',
+    running: 'Läuft',
+    error: 'Fehler',
+    disabled: 'Ausgeschaltet',
+  };
+
+  function describe(cfg, live) {
+    const phase = cfg.status || {};
+    const parts = [PHASES[phase.phase] || phase.phase || ''];
+    if (phase.version) parts.push(`aioslsk ${phase.version}`);
+    if (live && live.logged_in) parts.push(`angemeldet als ${live.username}`);
+    else if (live && live.phase === 'running') parts.push('verbindet mit Soulseek …');
+    else if (cfg.active_username) parts.push(`Konto ${cfg.active_username}${cfg.generated_account ? ' (automatisch angelegt)' : ''}`);
+    if (phase.message && phase.phase !== 'running') parts.push(phase.message);
+    return parts.filter(Boolean).join(' · ');
   }
 
   async function load() {
+    clearTimeout(timer);
     const {soulseek: cfg} = await apiFetch('/api/settings');
     if (!cfg) return;
-    el('soulseekUrl').value = cfg.url;
-    el('soulseekMusicPath').value = cfg.music_path || '';
-    el('soulseekMusicPath').placeholder = cfg.music_path_effective || '';
-    status(`API-Key ${cfg.key_set ? 'gespeichert' : 'fehlt'} · ${cfg.url ? 'Server konfiguriert' : 'Deaktiviert'}`);
+    if (document.activeElement === null || !el('soulseekSettings').contains(document.activeElement)) {
+      el('soulseekEnabled').checked = cfg.enabled;
+      el('soulseekUser').value = cfg.username || '';
+      el('soulseekPassword').placeholder = cfg.password_set ? 'Leer = unverändert' : 'Leer = automatisch';
+      el('soulseekMusicPath').value = cfg.music_path || '';
+      el('soulseekMusicPath').placeholder = cfg.music_path_effective || '';
+      el('soulseekPort').value = cfg.listen_port;
+      el('soulseekShare').checked = cfg.share_downloads;
+    }
+    let live = null;
+    if (cfg.status && cfg.status.phase === 'running') {
+      try { live = await apiFetch('/api/music/status', { timeoutMs: 15000 }); } catch (_error) { live = null; }
+    }
+    status(describe(cfg, live));
+    // Keep following while it installs or connects
+    const settled = cfg.status && ['idle', 'disabled', 'error'].includes(cfg.status.phase);
+    if (!settled && !(live && live.logged_in)) timer = setTimeout(() => load().catch(() => {}), 3000);
   }
 
-  el('testSoulseek').addEventListener('click', async () => {
-    const button = el('testSoulseek');
+  el('saveSoulseek').addEventListener('click', async () => {
+    const button = el('saveSoulseek');
     button.disabled = true;
-    status('Verbindung zu slskd wird geprüft …');
     try {
-      const data = await apiSend('/api/settings/soulseek/test', 'POST', credentials());
-      if (data.logged_in) status(`Verbunden und bei Soulseek angemeldet${data.username ? ` als ${data.username}` : ''}.`);
-      else if (data.connected) status('slskd erreichbar und mit Soulseek verbunden, aber noch nicht angemeldet.');
-      else status(`slskd erreichbar, aber nicht mit Soulseek verbunden (${data.state || 'unbekannt'}). Zugangsdaten in slskd prüfen.`);
+      const cfg = {
+        enabled: el('soulseekEnabled').checked,
+        username: el('soulseekUser').value,
+        music_path: el('soulseekMusicPath').value,
+        listen_port: el('soulseekPort').value,
+        share_downloads: el('soulseekShare').checked,
+      };
+      if (el('soulseekPassword').value) cfg.password = el('soulseekPassword').value;
+      if (!cfg.username) cfg.password = '';
+      await apiSend('/api/settings', 'PUT', {soulseek: cfg});
+      el('soulseekPassword').value = '';
+      await apiSend('/api/settings/soulseek/restart', 'POST', {});
+      await load();
     } catch (error) { status(error.message); }
     finally { button.disabled = false; }
   });
 
-  el('saveSoulseek').addEventListener('click', async () => {
-    el('saveSoulseek').disabled = true;
+  el('updateSoulseek').addEventListener('click', async () => {
+    const button = el('updateSoulseek');
+    button.disabled = true;
+    status('Neueste Version wird geladen …');
     try {
-      await apiSend('/api/settings', 'PUT', {soulseek: credentials()});
-      el('soulseekKey').value = ''; el('soulseekClearKey').checked = false;
+      await apiSend('/api/settings/soulseek/update', 'POST', {});
       await load();
     } catch (error) { status(error.message); }
-    finally { el('saveSoulseek').disabled = false; }
+    finally { button.disabled = false; }
   });
 
   load().catch(error => status(error.message));

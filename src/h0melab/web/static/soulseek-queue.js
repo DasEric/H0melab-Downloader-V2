@@ -1,7 +1,7 @@
 /* Soulseek downloads on the queue page.
  *
- * They run inside slskd, not in the downloader's own job table, so they are
- * polled from slskd and shown as their own block above the regular rows. The
+ * They run inside the Soulseek service, not in the downloader's own job
+ * table, so they are polled from it and shown as their own block above the regular rows. The
  * page's status chips and search apply to them as well.
  */
 (function () {
@@ -141,7 +141,7 @@
       groups = data.transfers || [];
       render();
     } catch (_error) {
-      // slskd away: keep the last known rows rather than flashing an error
+      // Service away: keep the last known rows rather than flashing an error
     }
     if (!document.hidden) timer = setTimeout(load, POLL);
   }
@@ -163,10 +163,21 @@
     if (!document.hidden) load();
   });
 
-  apiFetch("/api/music/status", { timeoutMs: 15000 })
-    .then((data) => {
-      enabled = Boolean(data.configured && data.reachable !== false);
-      load();
-    })
-    .catch(() => {});
+  // Only installs that use Soulseek; while the client starts up, ask again
+  async function connect() {
+    try {
+      const data = await apiFetch("/api/music/status", { timeoutMs: 15000 });
+      if (!data.configured) return;
+      if (data.phase === "running") {
+        enabled = true;
+        load();
+        return;
+      }
+    } catch (_error) {
+      /* try again below */
+    }
+    setTimeout(connect, 5000);
+  }
+
+  connect();
 }());

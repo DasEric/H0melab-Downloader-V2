@@ -1,10 +1,10 @@
-"""Soulseek music search and downloads through an slskd instance.
+"""Soulseek music search, downloads and discovery for the Music tab.
 
-slskd (https://github.com/slskd/slskd) is the maintained Soulseek client with a
-REST API. It keeps the Soulseek connection, the shares that the network expects
-from every user and the transfers alive, so this module only translates between
-its API and what the music page needs: grouped folders ("releases") instead of
-thousands of loose file hits, and a compact transfer list.
+The Soulseek session lives in a separate service process built on aioslsk
+(see soulseek_runtime.py and ../soulseek_service). This module talks to it
+over local HTTP and turns its answers into what the pages need: grouped
+folders ("releases") instead of thousands of loose file hits, a compact
+transfer list, album covers and Soulseek's own recommendations.
 """
 
 import hashlib
@@ -15,7 +15,7 @@ import shutil
 import threading
 import uuid
 from pathlib import Path
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import niquests
 
@@ -24,8 +24,6 @@ from ..logger import get_logger
 logger = get_logger(__name__)
 
 KEYS = {
-    "url": "H0MELAB_SLSKD_URL",
-    "api_key": "H0MELAB_SLSKD_API_KEY",
     "music_path": "H0MELAB_MUSIC_PATH",
 }
 
@@ -54,7 +52,7 @@ _SEARCH_ID = re.compile(r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}")
 
 
 class SoulseekError(RuntimeError):
-    """slskd is not configured, unreachable or refused a request."""
+    """The Soulseek service is not running, unreachable or refused a request."""
 
     def __init__(self, message, status=502):
         super().__init__(message)
@@ -65,20 +63,13 @@ class SoulseekError(RuntimeError):
 # Settings
 # ---------------------------------------------------------------------------
 def settings():
-    return {
-        "url": os.environ.get(KEYS["url"], "").strip(),
-        "key_set": bool(os.environ.get(KEYS["api_key"], "").strip()),
-        "music_path": os.environ.get(KEYS["music_path"], "").strip(),
-        "music_path_effective": str(music_path()),
-    }
+    from . import soulseek_runtime
+
+    return soulseek_runtime.settings()
 
 
 def music_path():
-    """Where slskd's download folder shows up inside this container/host.
-
-    slskd stores a download as <downloads>/<remote folder name>/<file>. Covers
-    are read from there, so this has to be the same folder, mounted here.
-    """
+    """Where finished music goes (and covers are read from)."""
     from . import paths
 
     raw = os.environ.get(KEYS["music_path"], "").strip()
@@ -86,70 +77,27 @@ def music_path():
 
 
 def configured():
-    current = settings()
-    return bool(current["url"] and current["key_set"])
+    from . import soulseek_runtime
 
-
-def _validate_url(value):
-    from .settings_store import SettingsError
-
-    try:
-        parts = urlsplit(value)
-        valid = (
-            parts.scheme in ("http", "https")
-            and parts.hostname
-            and not (parts.username or parts.password or parts.query or parts.fragment)
-        )
-        _ = parts.port
-    except ValueError:
-        valid = False
-    if not valid:
-        raise SettingsError(
-            "slskd URL must be HTTP(S), without credentials, query or fragment"
-        )
-    return value.rstrip("/")
+    return soulseek_runtime.enabled()
 
 
 def collect_settings(payload, updates):
-    from .settings_store import SECRET_PLACEHOLDER, SettingsError
+    from . import soulseek_runtime
 
-    if not isinstance(payload, dict):
-        raise SettingsError("Soulseek settings must be an object")
-    for name, key in KEYS.items():
-        if name not in payload:
-            continue
-        value = payload[name]
-        if not isinstance(value, str):
-            raise SettingsError("Invalid Soulseek setting")
-        value = value.strip()
-        if name == "api_key" and value == SECRET_PLACEHOLDER:
-            continue
-        if any(ord(c) < 32 or ord(c) == 127 for c in value):
-            raise SettingsError("Invalid Soulseek setting")
-        if name == "url" and value:
-            value = _validate_url(value)
-        elif name == "api_key" and (len(value) > 512 or not value.isascii()):
-            raise SettingsError("Invalid slskd API key")
-        elif name == "music_path" and len(value) > 1024:
-            raise SettingsError("Music folder path is too long")
-        updates[key] = value
+    soulseek_runtime.collect_settings(payload, updates)
 
 
 # ---------------------------------------------------------------------------
 # HTTP
 # ---------------------------------------------------------------------------
-def _connection(override=None):
-    """(base_url, api_key) from the saved settings, optionally overridden."""
-    url = os.environ.get(KEYS["url"], "").strip()
-    key = os.environ.get(KEYS["api_key"], "").strip()
-    if override:
-        updates = {}
-        collect_settings(override, updates)
-        url = updates.get(KEYS["url"], url)
-        key = updates.get(KEYS["api_key"], key)
-    if not url or not key:
-        raise SoulseekError("Soulseek (slskd) is not configured", status=409)
-    return url.rstrip("/"), key
+def _connection():
+    from . import soulseek_runtime
+
+    try:
+        return soulseek_runtime.connection()
+    except soulseek_runtime.RuntimeUnavailable as exc:
+        raise SoulseekError(str(exc), status=503) from None
 
 
 def _request(method, path, *, json=None, params=None, connection=None):
@@ -165,17 +113,19 @@ def _request(method, path, *, json=None, params=None, connection=None):
             allow_redirects=False,
         )
     except Exception as exc:  # niquests raises several transport types
-        logger.warning("slskd request %s %s failed: %s", method, path, exc)
-        raise SoulseekError("slskd is not reachable") from None
+        logger.warning("Soulseek service request %s %s failed: %s", method, path, exc)
+        raise SoulseekError("The Soulseek service is not reachable", status=503) from None
     status = response.status_code or 0
     if status in (401, 403):
-        raise SoulseekError("slskd rejected the API key", status=502)
+        raise SoulseekError("The Soulseek service rejected the token", status=502)
     if status == 404:
-        raise SoulseekError("Not found in slskd", status=404)
+        raise SoulseekError("Not found", status=404)
+    if status == 503:
+        raise SoulseekError("Soulseek is not connected yet", status=503)
     if status >= 400:
         detail = (response.text or "").strip()[:200]
-        logger.warning("slskd %s %s -> %s %s", method, path, status, detail)
-        raise SoulseekError(detail or f"slskd answered {status}", status=502)
+        logger.warning("Soulseek service %s %s -> %s %s", method, path, status, detail)
+        raise SoulseekError(detail or f"Soulseek service answered {status}", status=502)
     if not response.content:
         return None
     try:
@@ -184,17 +134,21 @@ def _request(method, path, *, json=None, params=None, connection=None):
         return None
 
 
-def status(override=None):
-    """Connection state of slskd and its Soulseek session."""
-    connection = _connection(override)
-    data = _request("GET", "/server", connection=connection) or {}
+def status():
+    """State of the Soulseek client and its session."""
+    from . import soulseek_runtime
+
+    runtime = soulseek_runtime.status()
+    data = _request("GET", "/server") or {}
     state = str(data.get("state") or "")
     return {
         "reachable": True,
         "connected": bool(data.get("isConnected") or "Connected" in state),
         "logged_in": bool(data.get("isLoggedIn") or "LoggedIn" in state),
         "state": state,
-        "username": (data.get("username") or ""),
+        "username": data.get("username") or "",
+        "version": data.get("version") or runtime.get("version") or "",
+        "error": data.get("error") or "",
     }
 
 
@@ -461,14 +415,15 @@ def transfers():
                         preview = (username, full) in _previews
                     if preview:
                         # Settle previews whose album dialog was closed early
+                        local = entry.get("localPath")
                         if state == "completed":
-                            _store_cover(username, full)
+                            _store_cover(username, full, local)
                         if state in ("completed", "failed", "cancelled"):
-                            _discard_preview(username, full, str(entry.get("id") or ""))
+                            _discard_preview(username, full, str(entry.get("id") or ""), local)
                         continue
                     if cover is None:
                         if state == "completed":
-                            cover = _store_cover(username, full)
+                            cover = _store_cover(username, full, entry.get("localPath"))
                         elif _cache_file(cover_key(username, full)):
                             cover = cover_key(username, full)
                     continue
@@ -554,7 +509,7 @@ def clear_finished():
 # Covers
 #
 # Soulseek has no thumbnails: the picture next to the tracks is just another
-# file, so it is downloaded through slskd like one. A "preview" fetch (album
+# file, so it is downloaded through the client like one. A "preview" fetch (album
 # opened, not downloaded) is copied into a private cache and its file and
 # transfer entry are removed again, so it never shows up as a stray folder.
 # ---------------------------------------------------------------------------
@@ -592,7 +547,7 @@ def cached_cover(key):
 
 
 def local_file(filename):
-    """Where slskd puts a remote file: <downloads>/<remote folder>/<name>."""
+    """Where the client puts a remote file: <downloads>/<remote folder>/<name>."""
     directory, name = _split_path(filename)
     parent = posixpath.basename(directory)
     if not name or not parent or name in (".", "..") or parent in (".", ".."):
@@ -606,13 +561,26 @@ def local_file(filename):
     return candidate
 
 
-def _store_cover(username, filename):
+def _inside_music(local_path):
+    """A path the service reported, accepted only inside the music folder."""
+    if not local_path:
+        return None
+    root = music_path()
+    candidate = Path(local_path)
+    try:
+        candidate.resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return None
+    return candidate
+
+
+def _store_cover(username, filename, local_path=None):
     """Copy a downloaded picture into the cache. Returns the key or None."""
     key = cover_key(username, filename)
     if _cache_file(key):
         return key
     ext = _extension(_split_path(filename)[1])
-    source = local_file(filename)
+    source = _inside_music(local_path) or local_file(filename)
     if ext not in IMAGE_TYPES or source is None or not source.is_file():
         return None
     if source.stat().st_size > MAX_COVER_BYTES:
@@ -627,7 +595,7 @@ def _store_cover(username, filename):
     return key
 
 
-def _discard_preview(username, filename, transfer_id=None):
+def _discard_preview(username, filename, transfer_id=None, local_path=None):
     """Remove what a preview fetch left behind, unless the album came after."""
     with _preview_lock:
         if (username, filename) not in _previews:
@@ -642,7 +610,7 @@ def _discard_preview(username, filename, transfer_id=None):
             )
         except SoulseekError:
             pass
-    source = local_file(filename)
+    source = _inside_music(local_path) or local_file(filename)
     if source is None:
         return
     folder = source.parent
@@ -694,10 +662,81 @@ def fetch_cover(username, filename, size):
 
     state = _transfer_state(transfer.get("state"))
     if state == "completed":
-        stored = _store_cover(username, filename)
-        _discard_preview(username, filename, str(transfer.get("id") or ""))
+        local = transfer.get("localPath")
+        stored = _store_cover(username, filename, local)
+        _discard_preview(username, filename, str(transfer.get("id") or ""), local)
         return {"state": "ready" if stored else "failed", "key": key}
     if state in ("failed", "cancelled"):
-        _discard_preview(username, filename, str(transfer.get("id") or ""))
+        _discard_preview(username, filename, str(transfer.get("id") or ""), transfer.get("localPath"))
         return {"state": "failed", "key": key}
     return {"state": "pending", "key": key}
+
+
+# ---------------------------------------------------------------------------
+# Discover: only what the Soulseek network itself provides
+# ---------------------------------------------------------------------------
+DISCOVER_LIMIT = 24
+
+
+def _recommendation_items(rows):
+    items = []
+    for row in rows or []:
+        if not isinstance(row, dict):
+            continue
+        name = " ".join(str(row.get("item") or "").split())
+        if not name:
+            continue
+        items.append({"kind": "interest", "title": name, "score": int(row.get("score") or 0), "query": name})
+        if len(items) >= DISCOVER_LIMIT:
+            break
+    return items
+
+
+def discover(row):
+    """Rows for the music start page, all from Soulseek."""
+    if row == "recent":
+        items = []
+        for group in transfers():
+            if group["state"] != "completed":
+                continue
+            items.append({
+                "kind": "download",
+                "title": group["title"],
+                "subtitle": group["username"],
+                "cover": group.get("cover"),
+                "query": group["title"],
+            })
+            if len(items) >= DISCOVER_LIMIT:
+                break
+        return items
+    if row == "global":
+        return _recommendation_items(_request("GET", "/discover/recommendations"))
+    if row == "personal":
+        return _recommendation_items(_request("GET", "/discover/recommendations/personal"))
+    if row == "rooms":
+        items = []
+        for room in _request("GET", "/discover/rooms") or []:
+            if not isinstance(room, dict) or not room.get("name"):
+                continue
+            items.append({
+                "kind": "room",
+                "title": str(room["name"]),
+                "users": int(room.get("userCount") or 0),
+                "query": str(room["name"]),
+            })
+            if len(items) >= DISCOVER_LIMIT:
+                break
+        return items
+    raise SoulseekError("Unknown row", status=400)
+
+
+def like(item):
+    """Tell Soulseek what the user is into; it drives the personal row."""
+    from . import soulseek_runtime
+
+    item = " ".join(str(item or "").split())[:80]
+    if len(item) < 2:
+        raise SoulseekError("Nothing to like", status=400)
+    _request("POST", "/interests", json={"item": item})
+    soulseek_runtime.remember_like(item)
+    return item

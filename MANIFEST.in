@@ -6,3 +6,6 @@ recursive-include src/h0melab/web/templates *.html
 recursive-include src/h0melab/web/static *.css *.js *.svg *.ico *.png *.webp
 include src/h0melab/web/static/flags/LICENSE.txt
 include src/h0melab/browsers.jsonl
+include src/h0melab/soulseek_service/service.py
+include src/h0melab/soulseek_service/LICENSE
+include src/h0melab/soulseek_service/README.md

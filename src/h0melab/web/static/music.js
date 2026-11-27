@@ -1,4 +1,4 @@
-/* Music page: discover rows plus Soulseek search through slskd, styled like home.js.
+/* Music page: Soulseek discover rows and search (own aioslsk client), styled like home.js.
    Downloads show up on the queue page (soulseek-queue.js). */
 (function () {
   const el = (id) => document.getElementById(id);
@@ -73,32 +73,40 @@
 
   /* ----- connection ----- */
 
+  /* Returns "ready", "waiting" (installing/connecting, ask again) or "off". */
   async function checkStatus() {
     try {
       const data = await apiFetch("/api/music/status", { timeoutMs: 20000 });
       if (!data.configured) {
         showNotice(
-          t("music.not_configured", "Soulseek is not set up yet"),
-          t("music.not_configured_hint", "Add the address and API key of your slskd instance under Settings → Integrations.")
+          t("music.disabled", "Soulseek is switched off"),
+          t("music.disabled_hint", "Switch it on under Settings → Integrations → Soulseek.")
         );
-        return false;
+        return "off";
       }
-      if (data.reachable === false) {
-        showNotice(t("music.unreachable", "slskd is not reachable"), data.error || "");
-        return false;
+      if (data.phase === "installing" || data.phase === "starting" || data.phase === "idle") {
+        showNotice(
+          t("music.setting_up", "Setting up Soulseek…"),
+          data.message || t("music.setting_up_hint", "The client is downloaded and configured automatically. This only takes long the first time.")
+        );
+        return "waiting";
+      }
+      if (data.phase === "error" || data.reachable === false) {
+        showNotice(t("music.unreachable", "Soulseek client has a problem"), data.message || data.error || "");
+        return "waiting";
       }
       if (!data.logged_in) {
         showNotice(
-          t("music.offline", "slskd is not logged in to Soulseek"),
-          t("music.offline_hint", "Check the Soulseek username and password in slskd. Searches will fail until it is connected.")
+          t("music.connecting", "Connecting to the Soulseek network…"),
+          data.error || t("music.connecting_hint", "Searches work as soon as the login went through.")
         );
-      } else {
-        notice.hidden = true;
+        return "waiting";
       }
-      return true;
+      notice.hidden = true;
+      return "ready";
     } catch (error) {
-      showNotice(t("music.unreachable", "slskd is not reachable"), error.message);
-      return false;
+      showNotice(t("music.unreachable", "Soulseek client has a problem"), error.message);
+      return "waiting";
     }
   }
 
@@ -395,25 +403,31 @@
   if (document.fonts) document.fonts.ready.then(moveThumb);
   window.addEventListener("pagehide", forgetSearch);
 
-  /* ----- discover rows ----- */
+  /* ----- discover rows (all from Soulseek) ----- */
+
+  /* Soulseek recommendations are just names, so they get a coloured tile. */
+  function tile(box, text) {
+    let hash = 0;
+    for (const char of text) hash = (hash * 31 + char.codePointAt(0)) % 360;
+    box.classList.add("music-tile");
+    box.style.setProperty("--tile-hue", String(hash));
+    const label = document.createElement("span");
+    label.className = "music-tile-text";
+    label.textContent = text;
+    box.append(label);
+  }
 
   function discoverCard(item) {
     const card = document.createElement("div");
-    card.className = `poster-card music-card${item.kind === "artist" ? " music-artist" : ""}`;
+    card.className = "poster-card music-card";
     card.tabIndex = 0;
     card.setAttribute("role", "button");
     const cover = document.createElement("div");
     cover.className = "music-cover";
-    if (item.cover_url) {
-      const image = document.createElement("img");
-      image.src = item.cover_url;
-      image.alt = "";
-      image.loading = "lazy";
-      image.addEventListener("error", () => paintCover(cover, null), { once: true });
-      cover.append(image);
-      cover.classList.add("has-image");
+    if (item.kind === "download") {
+      paintCover(cover, item.cover || null);
     } else {
-      paintCover(cover, null);
+      tile(cover, item.title);
     }
     const info = document.createElement("div");
     info.className = "info";
@@ -423,15 +437,23 @@
     title.textContent = item.title;
     const subtitle = document.createElement("div");
     subtitle.className = "subtitle";
-    subtitle.textContent = item.kind === "artist"
-      ? t("music.artist", "Artist")
-      : [item.subtitle, item.year].filter(Boolean).join(" · ");
+    if (item.kind === "room") {
+      subtitle.textContent = `${t("music.room", "Chat room")} · ${item.users} ${t("music.users", "users")}`;
+    } else if (item.kind === "interest") {
+      subtitle.textContent = t("music.recommended", "Recommended on Soulseek");
+    } else {
+      subtitle.textContent = item.subtitle || "";
+    }
     info.append(title, subtitle);
     card.append(cover, info);
     const pick = () => {
       if (!available) {
-        showToast(t("music.not_configured", "Soulseek is not set up yet"));
+        showToast(t("music.setting_up", "Setting up Soulseek…"));
         return;
+      }
+      // Picking a recommendation teaches Soulseek what you like
+      if (item.kind === "interest") {
+        apiSend("/api/music/like", "POST", { item: item.query }).catch(() => {});
       }
       query.value = item.query;
       form.requestSubmit();
@@ -449,9 +471,10 @@
 
   async function loadRow(section) {
     const grid = section.querySelector(".browse-grid");
+    section.hidden = false;
     message(grid, t("common.loading", "Loading…"));
     try {
-      const data = await apiFetch(`/api/music/discover?row=${encodeURIComponent(section.dataset.row)}`, { timeoutMs: 20000 });
+      const data = await apiFetch(`/api/music/discover?row=${encodeURIComponent(section.dataset.row)}`, { timeoutMs: 25000 });
       const items = data.items || [];
       if (!items.length) {
         section.hidden = true;
@@ -479,12 +502,24 @@
     if (!query.value.trim()) showBrowse();
   });
 
+  let rowsLoaded = false;
+
+  async function waitForClient() {
+    const state = await checkStatus();
+    available = state === "ready";
+    searchButton.disabled = !available;
+    if (available && !rowsLoaded) {
+      rowsLoaded = true;
+      browse.querySelectorAll(".browse-section[data-row]").forEach(loadRow);
+    }
+    if (state === "waiting") setTimeout(waitForClient, 3000);
+  }
+
   async function init() {
     moveThumb();
     document.body.dataset.site = "soulseek";
-    browse.querySelectorAll(".browse-section[data-row]").forEach(loadRow);
-    available = await checkStatus();
-    searchButton.disabled = !available;
+    browse.querySelectorAll(".browse-section[data-row]").forEach((section) => { section.hidden = true; });
+    await waitForClient();
   }
 
   init();

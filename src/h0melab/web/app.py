@@ -233,6 +233,13 @@ def _start_background_services():
     from . import upcoming
     upcoming.ensure_started()
     try:
+        from . import soulseek_runtime
+
+        # Only installs that already use the Music tab; first use starts it lazily
+        soulseek_runtime.start_if_used_before()
+    except Exception as exc:
+        logger.warning("Soulseek service not started: %s", exc)
+    try:
         from .discord_bot import start_if_enabled
 
         start_if_enabled()

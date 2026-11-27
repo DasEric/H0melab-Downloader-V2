@@ -696,18 +696,21 @@
       <section class="settings-pane" id="pane-integrations" role="tabpanel"
         aria-labelledby="tab-integrations" tabindex="-1" hidden>
         <section class="card integration-settings" id="soulseekSettings">
-          <h2><i class="fa-solid fa-music" aria-hidden="true"></i> Soulseek (slskd)</h2>
-          <p class="hint">Der Musik-Tab sucht und lädt über eine eigene <a href="https://github.com/slskd/slskd" target="_blank" rel="noopener noreferrer">slskd</a>-Instanz. slskd hält die Soulseek-Verbindung und deine Freigaben; die Dateien landen in dessen Download-Ordner (z. B. auf deine Musikbibliothek gemountet). Leere Server-URL deaktiviert die Integration.</p>
-          <label class="field"><span class="field-label">slskd-URL (aus dem Downloader erreichbar)</span><input id="soulseekUrl" type="url" placeholder="http://slskd:5030" /></label>
-          <label class="field"><span class="field-label">slskd-API-Key</span><input id="soulseekKey" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
-          <label class="checkbox"><input id="soulseekClearKey" type="checkbox" /> Gespeicherten API-Key löschen</label>
-          <label class="field"><span class="field-label">Musik-Ordner (slskd-Downloadordner, wie ihn der Downloader sieht)</span><input id="soulseekMusicPath" type="text" placeholder="" /></label>
-          <p class="hint">Daraus werden die Cover gelesen, die mit den Alben kommen. Muss derselbe Ordner sein, den slskd als Download-Ordner nutzt (im Docker-Beispiel <code>./Downloads/Music</code>). Leer = <code>&lt;Downloadpfad&gt;/Music</code>.</p>
+          <h2><i class="fa-solid fa-music" aria-hidden="true"></i> Soulseek</h2>
+          <p class="hint">Der Musik-Tab bringt seinen eigenen Soulseek-Client mit. Beim ersten Öffnen lädt der Downloader die neueste Version (<a href="https://github.com/JurgenR/aioslsk" target="_blank" rel="noopener noreferrer">aioslsk</a>) selbst herunter, richtet alles ein und hält sie täglich aktuell. Ohne eigene Zugangsdaten wird automatisch ein Soulseek-Konto angelegt.</p>
+          <label class="checkbox"><input id="soulseekEnabled" type="checkbox" /> Soulseek aktivieren</label>
+          <label class="field"><span class="field-label">Soulseek-Benutzername (optional)</span><input id="soulseekUser" type="text" autocomplete="off" placeholder="Leer = automatisch" /></label>
+          <label class="field"><span class="field-label">Soulseek-Passwort (optional)</span><input id="soulseekPassword" type="password" autocomplete="new-password" placeholder="Leer = unverändert" /></label>
+          <p class="hint">Nur ausfüllen, wenn du ein bestehendes Konto nutzen willst. Ein neuer Name wird beim ersten Login automatisch registriert.</p>
+          <label class="field"><span class="field-label">Musik-Ordner</span><input id="soulseekMusicPath" type="text" placeholder="" /></label>
+          <p class="hint">Hier landen die Alben (je Album ein Ordner mit Cover). Leer = <code>&lt;Downloadpfad&gt;/Music</code>.</p>
+          <label class="field"><span class="field-label">Soulseek-Port</span><input id="soulseekPort" type="number" min="1024" max="65534" /></label>
+          <p class="hint">Eingehende Verbindungen anderer Nutzer. Wird per UPnP automatisch am Router geöffnet; sonst diesen Port und Port+1 (TCP) weiterleiten. In Docker beide Ports veröffentlichen.</p>
+          <label class="checkbox"><input id="soulseekShare" type="checkbox" /> Musik-Ordner im Soulseek-Netz teilen (empfohlen, viele Nutzer laden sonst nicht an dich hoch)</label>
           <p class="integration-status hint" id="soulseekStatus" role="status" aria-live="polite"></p>
-          <p class="hint">Den API-Key in der slskd-Konfiguration unter <code>web.authentication.api_keys</code> anlegen (oder per <code>SLSKD_API_KEY</code>). Soulseek-Benutzername und -Passwort werden in slskd selbst eingetragen.</p>
           <div class="action-row">
-            <button type="button" class="btn btn-secondary" id="testSoulseek">Verbindung testen</button>
-            <button type="button" class="btn btn-primary" id="saveSoulseek">Soulseek speichern</button>
+            <button type="button" class="btn btn-secondary" id="updateSoulseek">Client aktualisieren</button>
+            <button type="button" class="btn btn-primary" id="saveSoulseek">Speichern &amp; neu starten</button>
           </div>
         </section>
         <section class="card integration-settings" id="jellyfinSettings">
@@ -881,7 +884,7 @@
 {% block scripts %}
 <script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-login-local-v2"></script>
 <script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
-<script defer src="{{ url_for('static', filename='soulseek-settings.js') }}?v={{ app_version }}-soulseek-v2"></script>
+<script defer src="{{ url_for('static', filename='soulseek-settings.js') }}?v={{ app_version }}-soulseek-v3"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>
   window.AUTH_ENABLED = {{ auth_enabled | tojson }};

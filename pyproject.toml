@@ -70,6 +70,10 @@ h0melab = [
   "web/static/flags/*.svg",
   "web/static/flags/LICENSE.txt",
   "browsers.jsonl",
+  # Separate GPL-3.0 program, run in its own process (see its header)
+  "soulseek_service/service.py",
+  "soulseek_service/LICENSE",
+  "soulseek_service/README.md",
 ]
 
 [project.scripts]

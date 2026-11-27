@@ -1,4 +1,4 @@
-"""Music tab: slskd bridge for Soulseek search and downloads."""
+"""Music tab: Soulseek search, downloads and discovery via the aioslsk service."""
 
 import pytest
 
@@ -8,9 +8,8 @@ SEARCH_ID = "11111111-2222-3333-4444-555555555555"
 
 
 @pytest.fixture
-def slskd(monkeypatch):
-    monkeypatch.setenv(soulseek.KEYS["url"], "http://slskd:5030")
-    monkeypatch.setenv(soulseek.KEYS["api_key"], "k" * 20)
+def service(monkeypatch):
+    """The service's HTTP API, answered from a dict."""
     calls = []
     answers = {}
 
@@ -55,25 +54,36 @@ def test_responses_are_grouped_into_folders_and_non_audio_dropped():
     assert releases[1]["bitrate"] == 320 and not releases[1]["lossless"]
 
 
-def test_settings_validate_url_and_keep_key_secret(client):
-    bad = client.put("/api/settings", json={"soulseek": {"url": "ftp://x"}})
-    assert bad.status_code == 400
+def test_settings_validate_and_keep_password_secret(client):
+    assert client.put("/api/settings", json={"soulseek": {"listen_port": 80}}).status_code == 400
+    assert client.put("/api/settings", json={"soulseek": {"username": "a\nb"}}).status_code == 400
     ok = client.put(
         "/api/settings",
-        json={"soulseek": {"url": "http://slskd:5030/", "api_key": "secret-key-123456"}},
+        json={"soulseek": {"username": "me", "password": "pw-123", "listen_port": "50400", "share_downloads": False}},
     )
     assert ok.status_code == 200
     cfg = client.get("/api/settings").get_json()["soulseek"]
-    assert cfg["url"] == "http://slskd:5030" and cfg["key_set"] is True
-    assert "api_key" not in cfg and cfg["music_path_effective"].endswith("Music")
+    assert cfg["username"] == "me" and cfg["password_set"] is True and "password" not in cfg
+    assert cfg["listen_port"] == 50400 and cfg["share_downloads"] is False
+    assert cfg["music_path_effective"].endswith("Music")
 
 
-def test_status_reports_unconfigured(client):
+def test_status_reports_switched_off(client, monkeypatch):
+    monkeypatch.setenv("H0MELAB_SOULSEEK_ENABLED", "0")
     assert client.get("/api/music/status").get_json() == {"configured": False}
 
 
-def test_search_flow(client, slskd):
-    calls, answers = slskd
+def test_status_while_the_client_installs(client):
+    from h0melab.web import soulseek_runtime
+
+    soulseek_runtime._set("installing", "Downloading the newest Soulseek client (aioslsk)…")
+    body = client.get("/api/music/status").get_json()
+    assert body["configured"] and body["phase"] == "installing" and body["reachable"] is False
+    soulseek_runtime._set("idle")
+
+
+def test_search_flow(client, service):
+    calls, answers = service
     started = client.post("/api/music/search", json={"q": "  some   album "})
     search_id = started.get_json()["id"]
     assert calls[0][0] == "POST" and calls[0][2]["searchText"] == "some album"
@@ -87,13 +97,13 @@ def test_search_flow(client, slskd):
     assert state["complete"] and state["releases"][0]["title"] == "B"
 
 
-def test_search_rejects_bad_input(client, slskd):
+def test_search_rejects_bad_input(client, service):
     assert client.post("/api/music/search", json={"q": "a"}).status_code == 400
     assert client.get("/api/music/search/not-a-uuid").status_code == 400
 
 
-def test_download_forwards_files_to_slskd(client, slskd):
-    calls, _ = slskd
+def test_download_forwards_files_to_slskd(client, service):
+    calls, _ = service
     response = client.post(
         "/api/music/download",
         json={"username": "a b", "files": [{"filename": "x\\y.flac", "size": 9}]},
@@ -104,8 +114,8 @@ def test_download_forwards_files_to_slskd(client, slskd):
     assert bad.status_code == 400
 
 
-def test_transfers_are_grouped_with_overall_state(client, slskd):
-    _, answers = slskd
+def test_transfers_are_grouped_with_overall_state(client, service):
+    _, answers = service
     answers[("GET", "/transfers/downloads")] = [
         {
             "username": "alice",
@@ -157,15 +167,15 @@ def music_dir(monkeypatch, tmp_path):
     return tmp_path / "music"
 
 
-def test_cover_preview_is_fetched_cached_and_cleaned_up(client, slskd, music_dir):
-    calls, answers = slskd
+def test_cover_preview_is_fetched_cached_and_cleaned_up(client, service, music_dir):
+    calls, answers = service
     body = {"username": "alice", "filename": "x\\Album\\cover.jpg", "size": 3}
 
     first = client.post("/api/music/cover", json=body).get_json()
     assert first["state"] == "pending"
     assert calls[-1][:3] == ("POST", "/transfers/downloads/alice", [{"filename": "x\\Album\\cover.jpg", "size": 3}])
 
-    # slskd finished it: the file sits in <music>/Album/cover.jpg
+    # service finished it: the file sits in <music>/Album/cover.jpg
     (music_dir / "Album").mkdir(parents=True)
     (music_dir / "Album" / "cover.jpg").write_bytes(b"jpg")
     answers[("GET", "/transfers/downloads/alice")] = {
@@ -173,7 +183,7 @@ def test_cover_preview_is_fetched_cached_and_cleaned_up(client, slskd, music_dir
     }
     done = client.post("/api/music/cover", json=body).get_json()
     assert done == {"state": "ready", "key": first["key"]}
-    # The preview left nothing behind, neither on disk nor in slskd's list
+    # The preview left nothing behind, neither on disk nor in service's list
     assert not (music_dir / "Album").exists()
     assert ("DELETE", "/transfers/downloads/alice/t1", None, {"remove": "true"}) in calls
 
@@ -182,8 +192,8 @@ def test_cover_preview_is_fetched_cached_and_cleaned_up(client, slskd, music_dir
     assert client.get("/api/music/cover/../../etc").status_code == 404
 
 
-def test_album_download_keeps_its_cover_and_shows_it(client, slskd, music_dir):
-    _, answers = slskd
+def test_album_download_keeps_its_cover_and_shows_it(client, service, music_dir):
+    _, answers = service
     soulseek._previews.add(("alice", "x\\Album\\cover.jpg"))
     client.post(
         "/api/music/download",
@@ -213,53 +223,105 @@ def test_album_download_keeps_its_cover_and_shows_it(client, slskd, music_dir):
     assert (music_dir / "Album" / "cover.jpg").exists()
 
 
-def test_cover_requests_are_validated(client, slskd, music_dir):
+def test_cover_requests_are_validated(client, service, music_dir):
     bad = {"username": "a", "filename": "x\\song.flac", "size": 3}
     assert client.post("/api/music/cover", json=bad).status_code == 400
     assert soulseek.local_file("..\\..\\evil.jpg") is None
 
 
-def test_discover_rows_come_from_deezer_with_proxied_covers(client, monkeypatch):
-    from h0melab.web import music_discover
-
-    music_discover._cache.clear()
-    seen = []
-
-    def fake_get_json(url, *, allowed_hosts=()):
-        seen.append((url, allowed_hosts))
-        if "artists" in url:
-            return {"data": [{"name": "Daft Punk", "picture_xl": "https://cdn.example/a.jpg"}]}
-        return {"data": [{"title": "Discovery", "release_date": "2001-03-12",
-                          "artist": {"name": "Daft Punk"}, "cover_xl": "https://cdn.example/c.jpg"}]}
-
-    monkeypatch.setattr(music_discover, "get_json", fake_get_json)
-    [album] = client.get("/api/music/discover?row=new_releases").get_json()["items"]
-    assert album["query"] == "Daft Punk Discovery" and album["year"] == "2001"
-    assert album["cover_url"].startswith("/api/catalog/cover?token=")
-    [artist] = client.get("/api/music/discover?row=top_artists").get_json()["items"]
-    assert artist["kind"] == "artist" and artist["query"] == "Daft Punk"
-    assert all(hosts == ("api.deezer.com",) for _, hosts in seen)
-    # Cached: a second visit does not ask Deezer again
-    client.get("/api/music/discover?row=new_releases")
-    assert len(seen) == 2
-    assert client.get("/api/music/discover?row=nope").status_code == 400
+def test_discover_rows_use_only_soulseek_data(client, service):
+    _, answers = service
+    answers[("GET", "/discover/recommendations")] = [
+        {"item": "electronic", "score": 90},
+        {"item": "  ", "score": 80},
+        {"item": "daft punk", "score": 70},
+    ]
+    answers[("GET", "/discover/rooms")] = [{"name": "Techno", "userCount": 321}]
+    rows = client.get("/api/music/discover?row=global").get_json()["items"]
+    assert [r["title"] for r in rows] == ["electronic", "daft punk"]
+    assert all(r["kind"] == "interest" and "cover_url" not in r for r in rows)
+    [room] = client.get("/api/music/discover?row=rooms").get_json()["items"]
+    assert room == {"kind": "room", "title": "Techno", "users": 321, "query": "Techno"}
+    assert client.get("/api/music/discover?row=deezer").status_code == 400
 
 
-def test_discover_failure_is_reported(client, monkeypatch):
-    from h0melab.catalog.common import CatalogError
-    from h0melab.web import music_discover
+def test_recent_row_shows_finished_albums_with_covers(client, service, music_dir):
+    _, answers = service
+    (music_dir / "Album").mkdir(parents=True)
+    (music_dir / "Album" / "cover.jpg").write_bytes(b"jpg")
+    answers[("GET", "/transfers/downloads")] = [
+        {
+            "username": "alice",
+            "directories": [
+                {
+                    "directory": "x\\Album",
+                    "files": [
+                        {"id": "1", "filename": "x\\Album\\cover.jpg", "state": "Completed, Succeeded", "size": 3,
+                         "localPath": str(music_dir / "Album" / "cover.jpg")},
+                        {"id": "2", "filename": "x\\Album\\01.flac", "state": "Completed, Succeeded", "size": 9},
+                    ],
+                },
+                {"directory": "x\\Busy", "files": [{"id": "3", "filename": "x\\Busy\\1.mp3", "state": "InProgress", "size": 9}]},
+            ],
+        }
+    ]
+    [item] = client.get("/api/music/discover?row=recent").get_json()["items"]
+    assert item["title"] == "Album" and item["cover"] == soulseek.cover_key("alice", "x\\Album\\cover.jpg")
 
-    music_discover._cache.clear()
 
-    def broken(url, *, allowed_hosts=()):
-        raise CatalogError("down")
+def test_liking_a_recommendation_is_sent_and_remembered(client, service, tmp_path, monkeypatch):
+    from h0melab.web import soulseek_runtime
 
-    monkeypatch.setattr(music_discover, "get_json", broken)
-    assert client.get("/api/music/discover?row=top_albums").status_code == 502
+    monkeypatch.setattr(soulseek_runtime, "base_dir", lambda: tmp_path)
+    calls, _ = service
+    assert client.post("/api/music/like", json={"item": "  daft   punk "}).get_json() == {"item": "daft punk"}
+    assert ("POST", "/interests", {"item": "daft punk"}, None) in calls
+    assert (tmp_path / "likes.json").read_text() == '["daft punk"]'
+    assert client.post("/api/music/like", json={"item": ""}).status_code == 400
+
+
+def test_generated_account_is_stable(tmp_path, monkeypatch):
+    from h0melab.web import soulseek_runtime
+
+    monkeypatch.setattr(soulseek_runtime, "base_dir", lambda: tmp_path)
+    first = soulseek_runtime.credentials()
+    assert first[0].startswith("h0melab-") and first[2] is True
+    assert soulseek_runtime.credentials() == first
+    monkeypatch.setenv("H0MELAB_SOULSEEK_USERNAME", "mine")
+    monkeypatch.setenv("H0MELAB_SOULSEEK_PASSWORD", "secret")
+    assert soulseek_runtime.credentials() == ("mine", "secret", False)
+
+
+def test_service_unavailable_while_starting(monkeypatch):
+    from h0melab.web import soulseek_runtime
+
+    soulseek_runtime._set("starting", "Starting the Soulseek client…")
+    with pytest.raises(soulseek.SoulseekError) as caught:
+        soulseek._connection()
+    assert caught.value.status == 503
+    soulseek_runtime._set("idle")
+
+
+def test_service_script_stays_separate_from_the_app():
+    """The GPL service must never import the downloader (and vice versa)."""
+    from pathlib import Path
+
+    from h0melab.web import soulseek_runtime
+
+    script = soulseek_runtime.SERVICE_SCRIPT
+    text = script.read_text(encoding="utf-8")
+    assert "GPL-3.0-or-later" in text.splitlines()[0]
+    assert "h0melab" not in "".join(
+        line for line in text.splitlines() if line.startswith(("import ", "from "))
+    )
+    assert (script.parent / "LICENSE").is_file()
+    app_sources = Path(soulseek.__file__).parent.rglob("*.py")
+    assert not any("aioslsk" in line and line.lstrip().startswith(("import", "from"))
+                   for source in app_sources for line in source.read_text(encoding="utf-8").splitlines())
 
 
 def test_queue_page_has_the_soulseek_section(client):
     html = client.get("/queue").get_data(as_text=True)
     assert 'id="soulseekQueue"' in html and "soulseek-queue.js" in html
     music = client.get("/music").get_data(as_text=True)
-    assert 'data-row="new_releases"' in music and "musicTransfers" not in music
+    assert 'data-row="global"' in music and "musicTransfers" not in music and "deezer" not in music.lower()

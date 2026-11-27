@@ -5,6 +5,10 @@ services:
     # build: .
     ports:
       - "8080:8080"
+      # Soulseek (Music tab): incoming peer connections, port and port+1.
+      # Also forward them on your router if UPnP does not do it for you.
+      - "50300:50300"
+      - "50301:50301"
     volumes:
       # Persist downloads on the host so they survive container recreation.
       - ./Downloads:/app/Downloads
@@ -100,28 +104,6 @@ services:
     #   H0MELAB_SPOOF_WEBGL: "0"                     # 1 = mask SwiftShader on GPU-less servers
 
     restart: unless-stopped
-
-  # --- Optional: Soulseek for the Music tab ---------------------------------
-  # Uncomment to run slskd next to the downloader. Then enter
-  # http://slskd:5030 and the API key below in Settings -> Integrations.
-  # Finished music lands in ./Downloads/Music on the host.
-  # slskd:
-  #   image: slskd/slskd:latest
-  #   container_name: slskd
-  #   ports:
-  #     - "5030:5030"          # slskd's own web UI (optional)
-  #     - "50300:50300"        # Soulseek listen port, forward it on your router
-  #   environment:
-  #     SLSKD_SLSK_USERNAME: "your-soulseek-name"
-  #     SLSKD_SLSK_PASSWORD: "your-soulseek-password"
-  #     SLSKD_API_KEY: "change-me-to-a-long-random-string"
-  #     SLSKD_DOWNLOADS_DIR: /downloads
-  #     SLSKD_SHARED_DIR: /music
-  #   volumes:
-  #     - ./slskd:/app
-  #     - ./Downloads/Music:/downloads
-  #     - ./Downloads/Music:/music:ro   # share what you have, Soulseek expects it
-  #   restart: unless-stopped
 
 volumes:
   h0melab-data:

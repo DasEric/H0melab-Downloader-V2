@@ -49,7 +49,7 @@
     </div>
   </div>
 
-  {# Soulseek music runs inside slskd; soulseek-queue.js fills this when there is any. #}
+  {# Soulseek music runs in its own service; soulseek-queue.js fills this when there is any. #}
   <section class="soulseek-queue" id="soulseekQueue" hidden>
     <h2 class="queue-section-title"><i class="fa-solid fa-music" aria-hidden="true"></i> Soulseek</h2>
     <div id="soulseekQueueList" class="queue-list"></div>
@@ -83,5 +83,5 @@
    stay unchanged between deployments, so it is not enough to evict an older
    queue.js that only renders the combined bar. #}
 <script src="{{ url_for('static', filename='queue.js') }}?v={{ app_version }}-fast-transfer-compact-progress-serienstream-soft-subs-pause"></script>
-<script src="{{ url_for('static', filename='soulseek-queue.js') }}?v={{ app_version }}-soulseek-v2"></script>
+<script src="{{ url_for('static', filename='soulseek-queue.js') }}?v={{ app_version }}-soulseek-v3"></script>
 {% endblock %}
