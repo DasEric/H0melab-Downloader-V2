@@ -1,0 +1,104 @@
+{% extends "base.html" %}
+
+{% block title %}{{ "Musik" if ui_language == "de" else "Music" }} - H0melab Downloader{% endblock %}
+
+{% block content %}
+<div class="container music-page">
+  <h1 data-i18n="index.heading">H0melab Downloader</h1>
+
+  <div class="segmented" id="musicSourceSwitch">
+    <div class="segmented-track" id="musicSourceTrack" role="tablist"
+      aria-label="{{ 'Musikquellen' if ui_language == 'de' else 'Music sources' }}">
+      <div class="segmented-thumb" id="musicSourceThumb"></div>
+      <button class="segmented-btn active" type="button" role="tab" aria-selected="true" data-source="soulseek">Soulseek</button>
+    </div>
+  </div>
+
+  <form class="search-bar" id="musicSearchForm">
+    <input id="musicQuery" type="search" minlength="2" autocomplete="off" autofocus
+      data-i18n-placeholder="music.search_placeholder"
+      placeholder="{{ 'Künstler, Album oder Titel suchen …' if ui_language == 'de' else 'Search artist, album or track…' }}" />
+    <button class="btn btn-primary" id="musicSearchBtn" type="submit" data-i18n="index.search">
+      {{ "Suchen" if ui_language == "de" else "Search" }}
+    </button>
+  </form>
+
+  <div class="music-notice card" id="musicNotice" hidden>
+    <i class="fa-solid fa-plug-circle-xmark" aria-hidden="true"></i>
+    <div>
+      <strong id="musicNoticeTitle"></strong>
+      <p class="hint" id="musicNoticeText"></p>
+    </div>
+    {% if is_admin %}
+    <a class="btn btn-secondary" href="{{ url_for('pages.settings') }}#integrations" data-i18n="music.open_settings">Open settings</a>
+    {% endif %}
+  </div>
+
+  <div class="music-search-status" id="musicSearchStatus" hidden>
+    <span class="music-pulse" id="musicPulse" aria-hidden="true"></span>
+    <span id="musicSearchStatusText"></span>
+    <div class="music-filters" id="musicFilters">
+      <label class="checkbox"><input type="checkbox" id="musicFilterLossless" /> <span data-i18n="music.filter_lossless">Lossless only</span></label>
+      <label class="checkbox"><input type="checkbox" id="musicFilterFree" /> <span data-i18n="music.filter_free">Free slot only</span></label>
+    </div>
+  </div>
+
+  <div class="results music-results" id="musicResults" aria-live="polite" hidden></div>
+
+  {# Soulseek has no charts; these come from Deezer and start a Soulseek search. #}
+  <div id="musicBrowse">
+    <section class="browse-section" data-row="new_releases">
+      <h2 class="browse-heading" data-i18n="music.new_releases">New &amp; Noteworthy</h2>
+      <div class="browse-grid"></div>
+    </section>
+    <section class="browse-section" data-row="top_albums">
+      <h2 class="browse-heading" data-i18n="music.top_albums">Popular Albums</h2>
+      <div class="browse-grid"></div>
+    </section>
+    <section class="browse-section" data-row="top_tracks">
+      <h2 class="browse-heading" data-i18n="music.top_tracks">Popular Songs</h2>
+      <div class="browse-grid"></div>
+    </section>
+    <section class="browse-section" data-row="top_artists">
+      <h2 class="browse-heading" data-i18n="music.top_artists">Popular Artists</h2>
+      <div class="browse-grid"></div>
+    </section>
+  </div>
+</div>
+
+<div class="overlay" id="musicOverlay" data-close-on-backdrop>
+  <div class="modal music-modal" role="dialog" aria-modal="true" aria-labelledby="musicModalTitle">
+    <button class="modal-close" data-close-modal type="button" aria-label="Close">&times;</button>
+    <div class="series-header">
+      <div class="music-cover-wrap">
+        <div class="music-cover" id="musicModalCover"></div>
+        <div class="music-cover-status" id="musicCoverStatus" hidden data-i18n="music.loading_cover">Loading cover…</div>
+      </div>
+      <div class="series-meta">
+        <h2 id="musicModalTitle"></h2>
+        <div class="series-genres" id="musicModalTags"></div>
+        <div class="series-year" id="musicModalMeta"></div>
+        <div class="series-desc music-path" id="musicModalPath"></div>
+      </div>
+    </div>
+
+    <div class="episodes-header">
+      <h3 data-i18n="music.tracks">Tracks</h3>
+      <label class="checkbox">
+        <input type="checkbox" id="musicSelectAll" checked />
+        <span data-i18n="index.select_all">Select All</span>
+      </label>
+    </div>
+    <div class="season-accordion music-tracks" id="musicTracks"></div>
+
+    <div class="modal-actions">
+      <button class="btn btn-primary" id="musicDownloadSelected" type="button" data-i18n="index.download_selected">Download Selected</button>
+      <button class="btn btn-secondary" id="musicDownloadAll" type="button" data-i18n="index.download_all">Download All</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='music.js') }}?v={{ app_version }}-soulseek-v4"></script>
+{% endblock %}

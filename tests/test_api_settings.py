@@ -570,7 +570,7 @@ def test_integration_settings_use_shared_form_styles(client):
     assert '<select id="jellyfinSeries">' in html
     assert parser.fields["jellyfinUrl"]["type"] == "url"
     assert parser.fields["seerrSecret"]["type"] == "password"
-    assert html.count('class="card integration-settings"') == 3
+    assert html.count('class="card integration-settings"') == 4
     assert parser.fields["plexUrl"]["type"] == "url"
     assert parser.fields["plexKey"]["type"] == "password"
     css = (Path(__file__).parents[1] / "src/h0melab/web/static/style.css").read_text(

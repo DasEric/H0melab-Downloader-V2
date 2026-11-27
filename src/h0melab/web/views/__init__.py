@@ -14,6 +14,7 @@ from . import (
     api_library,
     api_media,
     api_media_targets,
+    api_music,
     api_queue,
     api_seerr,
     api_settings,
@@ -25,6 +26,7 @@ from . import (
 ADMIN_ENDPOINTS = {
     "api.jellyfin_libraries",
     "api.plex_libraries",
+    "api.soulseek_test",
     "api.plex_login",
     "api.seerr_retry",
     "api.seerr_review",
@@ -89,6 +91,7 @@ def register_blueprints(app):
         api_catalog,
         api_connector,
         api_media_targets,
+        api_music,
         api_queue,
         api_seerr,
         api_settings,

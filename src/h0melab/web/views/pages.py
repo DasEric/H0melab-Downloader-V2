@@ -75,6 +75,11 @@ def books_audio():
     return render_template("catalog.html")
 
 
+@bp.route("/music")
+def music():
+    return render_template("music.html")
+
+
 @bp.route("/queue")
 def queue():
     return render_template("queue.html")

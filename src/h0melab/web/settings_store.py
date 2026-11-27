@@ -495,7 +495,7 @@ def _persist_settings(updates):
 # Read / write
 # ---------------------------------------------------------------------------
 def read_settings():
-    from . import jellyfin, plex, seerr
+    from . import jellyfin, plex, seerr, soulseek
 
     return {
         "download_path": str(paths.default_download_path()),
@@ -539,6 +539,7 @@ def read_settings():
         "seerr": seerr.settings(),
         "jellyfin": jellyfin.settings(),
         "plex": plex.settings(),
+        "soulseek": soulseek.settings(),
     }
 
 
@@ -712,6 +713,9 @@ def update_settings(data):
     if "jellyfin" in data:
         from .jellyfin import collect_settings
         collect_settings(data["jellyfin"], updates)
+    if "soulseek" in data:
+        from .soulseek import collect_settings
+        collect_settings(data["soulseek"], updates)
 
     # Persist first. If the disk is read-only/full, the API must not claim a
     # successful save or leave a runtime-only change that vanishes on restart.
