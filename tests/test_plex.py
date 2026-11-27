@@ -60,7 +60,11 @@ def test_choices_and_secret(server, client, monkeypatch, tmp_path):
     response = client.post("/api/settings/plex/libraries", json={})
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
-    assert [row["type"] for row in response.json["libraries"]] == ["movies", "tvshows", "music"]
+    assert [row["type"] for row in response.json["libraries"]] == [
+        "movies",
+        "tvshows",
+        "music",
+    ]
     assert "private-token" not in client.get("/api/settings").get_data(as_text=True)
     assert "private-token" not in settings_store.export_env()
     assert (
@@ -127,7 +131,9 @@ def test_admin_only(client, api_key, monkeypatch, scope):
 def test_draft_token_does_not_persist(server):
     import os
 
-    assert len(plex.libraries({"api_key": "draft-token"})) == 3  # movies, shows and music (Plex "artist")
+    assert (
+        len(plex.libraries({"api_key": "draft-token"})) == 3
+    )  # movies, shows and music (Plex "artist")
     assert server[0][1]["headers"]["X-Plex-Token"] == "draft-token"
     assert os.environ[plex.KEYS["api_key"]] == "private-token"
 

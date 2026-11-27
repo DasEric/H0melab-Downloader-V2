@@ -167,7 +167,11 @@ def test_library_choices_use_draft_key_without_saving(client, monkeypatch):
     )
     assert response.status_code == 200
     assert response.headers["Cache-Control"] == "no-store"
-    assert [row["type"] for row in response.get_json()["libraries"]] == ["movies", "tvshows", "music"]
+    assert [row["type"] for row in response.get_json()["libraries"]] == [
+        "movies",
+        "tvshows",
+        "music",
+    ]
     assert calls[0][0] == "http://jellyfin:8096/base/Library/VirtualFolders"
     assert calls[0][1]["headers"] == {
         "Authorization": 'MediaBrowser Token="draft-secret"'
@@ -275,8 +279,10 @@ def test_music_refresh_targets_the_music_library(monkeypatch):
             pass
 
         def get(self, url, **kw):
-            return SimpleNamespace(status_code=200, json=lambda: [
-                {"ItemId": "3" * 32, "CollectionType": "music"}])
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: [{"ItemId": "3" * 32, "CollectionType": "music"}],
+            )
 
         def post(self, url, **kw):
             posts.append(url)

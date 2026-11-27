@@ -322,12 +322,23 @@ def test_revalidation_keeps_search_media_type_when_detail_page_omits_it(monkeypa
     }
     hit = {"url": "https://serienstream.to/serie/breaking-bad", "media_type": "series"}
     for reason in ("", seerr_matching.AUTO_REASON):
-        request = {"selected_url": hit["url"], "candidates": [hit], "review_reason": reason}
-        assert seerr_matching.revalidate_selection(identity, request)["media_type"] == "series"
+        request = {
+            "selected_url": hit["url"],
+            "candidates": [hit],
+            "review_reason": reason,
+        }
+        assert (
+            seerr_matching.revalidate_selection(identity, request)["media_type"]
+            == "series"
+        )
     # A detail page that contradicts the search type is still a hard conflict.
     model.is_movie = True
     with pytest.raises(seerr_matching.IdentityReviewRequired):
         seerr_matching.revalidate_selection(
             identity,
-            {"selected_url": hit["url"], "candidates": [hit], "review_reason": seerr_matching.AUTO_REASON},
+            {
+                "selected_url": hit["url"],
+                "candidates": [hit],
+                "review_reason": seerr_matching.AUTO_REASON,
+            },
         )

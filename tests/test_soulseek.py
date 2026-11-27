@@ -37,12 +37,26 @@ def test_responses_are_grouped_into_folders_and_non_audio_dropped():
             _response(
                 "alice",
                 [
-                    {"filename": "@@music\\Artist\\Album\\02 B.flac", "size": 20, "bitDepth": 16, "sampleRate": 44100, "length": 100},
-                    {"filename": "@@music\\Artist\\Album\\01 A.flac", "size": 10, "length": 50},
+                    {
+                        "filename": "@@music\\Artist\\Album\\02 B.flac",
+                        "size": 20,
+                        "bitDepth": 16,
+                        "sampleRate": 44100,
+                        "length": 100,
+                    },
+                    {
+                        "filename": "@@music\\Artist\\Album\\01 A.flac",
+                        "size": 10,
+                        "length": 50,
+                    },
                     {"filename": "@@music\\Artist\\Album\\cover.jpg", "size": 5},
                 ],
             ),
-            _response("bob", [{"filename": "x/Single/song.mp3", "size": 3, "bitRate": 320}], free=False),
+            _response(
+                "bob",
+                [{"filename": "x/Single/song.mp3", "size": 3, "bitRate": 320}],
+                free=False,
+            ),
         ]
     )
     assert [r["username"] for r in releases] == ["alice", "bob"]
@@ -55,15 +69,32 @@ def test_responses_are_grouped_into_folders_and_non_audio_dropped():
 
 
 def test_settings_validate_and_keep_password_secret(client):
-    assert client.put("/api/settings", json={"soulseek": {"listen_port": 80}}).status_code == 400
-    assert client.put("/api/settings", json={"soulseek": {"username": "a\nb"}}).status_code == 400
+    assert (
+        client.put("/api/settings", json={"soulseek": {"listen_port": 80}}).status_code
+        == 400
+    )
+    assert (
+        client.put("/api/settings", json={"soulseek": {"username": "a\nb"}}).status_code
+        == 400
+    )
     ok = client.put(
         "/api/settings",
-        json={"soulseek": {"username": "me", "password": "pw-123", "listen_port": "50400", "share_downloads": False}},
+        json={
+            "soulseek": {
+                "username": "me",
+                "password": "pw-123",
+                "listen_port": "50400",
+                "share_downloads": False,
+            }
+        },
     )
     assert ok.status_code == 200
     cfg = client.get("/api/settings").get_json()["soulseek"]
-    assert cfg["username"] == "me" and cfg["password_set"] is True and "password" not in cfg
+    assert (
+        cfg["username"] == "me"
+        and cfg["password_set"] is True
+        and "password" not in cfg
+    )
     assert cfg["listen_port"] == 50400 and cfg["share_downloads"] is False
     assert cfg["music_path_effective"].endswith("Music")
 
@@ -76,9 +107,15 @@ def test_status_reports_switched_off(client, monkeypatch):
 def test_status_while_the_client_installs(client):
     from h0melab.web import soulseek_runtime
 
-    soulseek_runtime._set("installing", "Downloading the newest Soulseek client (aioslsk)…")
+    soulseek_runtime._set(
+        "installing", "Downloading the newest Soulseek client (aioslsk)…"
+    )
     body = client.get("/api/music/status").get_json()
-    assert body["configured"] and body["phase"] == "installing" and body["reachable"] is False
+    assert (
+        body["configured"]
+        and body["phase"] == "installing"
+        and body["reachable"] is False
+    )
     soulseek_runtime._set("idle")
 
 
@@ -89,7 +126,10 @@ def test_search_flow(client, service):
     assert calls[0][0] == "POST" and calls[0][2]["searchText"] == "some album"
     assert calls[0][2]["id"] == search_id
 
-    answers[("GET", f"/searches/{SEARCH_ID}")] = {"isComplete": True, "responseCount": 1}
+    answers[("GET", f"/searches/{SEARCH_ID}")] = {
+        "isComplete": True,
+        "responseCount": 1,
+    }
     answers[("GET", f"/searches/{SEARCH_ID}/responses")] = [
         _response("alice", [{"filename": "A\\B\\t.mp3", "size": 1}])
     ]
@@ -109,8 +149,16 @@ def test_download_forwards_files_to_slskd(client, service):
         json={"username": "a b", "files": [{"filename": "x\\y.flac", "size": 9}]},
     )
     assert response.get_json() == {"queued": 1}
-    assert calls[-1] == ("POST", "/transfers/downloads/a%20b", [{"filename": "x\\y.flac", "size": 9}], None)
-    bad = client.post("/api/music/download", json={"username": "a", "files": [{"filename": "x", "size": -1}]})
+    assert calls[-1] == (
+        "POST",
+        "/transfers/downloads/a%20b",
+        [{"filename": "x\\y.flac", "size": 9}],
+        None,
+    )
+    bad = client.post(
+        "/api/music/download",
+        json={"username": "a", "files": [{"filename": "x", "size": -1}]},
+    )
     assert bad.status_code == 400
 
 
@@ -123,8 +171,21 @@ def test_transfers_are_grouped_with_overall_state(client, service):
                 {
                     "directory": "Music\\Album",
                     "files": [
-                        {"id": "1", "filename": "Music\\Album\\1.flac", "state": "Completed, Succeeded", "size": 100, "bytesTransferred": 100},
-                        {"id": "2", "filename": "Music\\Album\\2.flac", "state": "InProgress", "size": 100, "bytesTransferred": 50, "averageSpeed": 10},
+                        {
+                            "id": "1",
+                            "filename": "Music\\Album\\1.flac",
+                            "state": "Completed, Succeeded",
+                            "size": 100,
+                            "bytesTransferred": 100,
+                        },
+                        {
+                            "id": "2",
+                            "filename": "Music\\Album\\2.flac",
+                            "state": "InProgress",
+                            "size": 100,
+                            "bytesTransferred": 50,
+                            "averageSpeed": 10,
+                        },
                     ],
                 }
             ],
@@ -149,7 +210,10 @@ def test_best_cover_is_picked_per_folder():
                 [
                     {"filename": "A\\Album\\scan_back.jpg", "size": 900},
                     {"filename": "A\\Album\\Folder.JPG", "size": 100},
-                    {"filename": "A\\Album\\huge.png", "size": soulseek.MAX_COVER_BYTES + 1},
+                    {
+                        "filename": "A\\Album\\huge.png",
+                        "size": soulseek.MAX_COVER_BYTES + 1,
+                    },
                     {"filename": "A\\Album\\01.flac", "size": 10},
                 ],
             )
@@ -173,22 +237,45 @@ def test_cover_preview_is_fetched_cached_and_cleaned_up(client, service, music_d
 
     first = client.post("/api/music/cover", json=body).get_json()
     assert first["state"] == "pending"
-    assert calls[-1][:3] == ("POST", "/transfers/downloads/alice", [{"filename": "x\\Album\\cover.jpg", "size": 3}])
+    assert calls[-1][:3] == (
+        "POST",
+        "/transfers/downloads/alice",
+        [{"filename": "x\\Album\\cover.jpg", "size": 3}],
+    )
 
     # service finished it: the file sits in <music>/Album/cover.jpg
     (music_dir / "Album").mkdir(parents=True)
     (music_dir / "Album" / "cover.jpg").write_bytes(b"jpg")
     answers[("GET", "/transfers/downloads/alice")] = {
-        "directories": [{"files": [{"id": "t1", "filename": "x\\Album\\cover.jpg", "state": "Completed, Succeeded"}]}]
+        "directories": [
+            {
+                "files": [
+                    {
+                        "id": "t1",
+                        "filename": "x\\Album\\cover.jpg",
+                        "state": "Completed, Succeeded",
+                    }
+                ]
+            }
+        ]
     }
     done = client.post("/api/music/cover", json=body).get_json()
     assert done == {"state": "ready", "key": first["key"]}
     # The preview left nothing behind, neither on disk nor in service's list
     assert not (music_dir / "Album").exists()
-    assert ("DELETE", "/transfers/downloads/alice/t1", None, {"remove": "true"}) in calls
+    assert (
+        "DELETE",
+        "/transfers/downloads/alice/t1",
+        None,
+        {"remove": "true"},
+    ) in calls
 
     image = client.get(f"/api/music/cover/{first['key']}")
-    assert image.status_code == 200 and image.data == b"jpg" and image.mimetype == "image/jpeg"
+    assert (
+        image.status_code == 200
+        and image.data == b"jpg"
+        and image.mimetype == "image/jpeg"
+    )
     assert client.get("/api/music/cover/../../etc").status_code == 404
 
 
@@ -197,7 +284,10 @@ def test_album_download_keeps_its_cover_and_shows_it(client, service, music_dir)
     soulseek._previews.add(("alice", "x\\Album\\cover.jpg"))
     client.post(
         "/api/music/download",
-        json={"username": "alice", "files": [{"filename": "x\\Album\\cover.jpg", "size": 3}]},
+        json={
+            "username": "alice",
+            "files": [{"filename": "x\\Album\\cover.jpg", "size": 3}],
+        },
     )
     assert not soulseek._previews
 
@@ -210,8 +300,18 @@ def test_album_download_keeps_its_cover_and_shows_it(client, service, music_dir)
                 {
                     "directory": "x\\Album",
                     "files": [
-                        {"id": "1", "filename": "x\\Album\\cover.jpg", "state": "Completed, Succeeded", "size": 3},
-                        {"id": "2", "filename": "x\\Album\\01.flac", "state": "Completed, Succeeded", "size": 9},
+                        {
+                            "id": "1",
+                            "filename": "x\\Album\\cover.jpg",
+                            "state": "Completed, Succeeded",
+                            "size": 3,
+                        },
+                        {
+                            "id": "2",
+                            "filename": "x\\Album\\01.flac",
+                            "state": "Completed, Succeeded",
+                            "size": 9,
+                        },
                     ],
                 }
             ],
@@ -256,25 +356,51 @@ def test_recent_row_shows_finished_albums_with_covers(client, service, music_dir
                 {
                     "directory": "x\\Album",
                     "files": [
-                        {"id": "1", "filename": "x\\Album\\cover.jpg", "state": "Completed, Succeeded", "size": 3,
-                         "localPath": str(music_dir / "Album" / "cover.jpg")},
-                        {"id": "2", "filename": "x\\Album\\01.flac", "state": "Completed, Succeeded", "size": 9},
+                        {
+                            "id": "1",
+                            "filename": "x\\Album\\cover.jpg",
+                            "state": "Completed, Succeeded",
+                            "size": 3,
+                            "localPath": str(music_dir / "Album" / "cover.jpg"),
+                        },
+                        {
+                            "id": "2",
+                            "filename": "x\\Album\\01.flac",
+                            "state": "Completed, Succeeded",
+                            "size": 9,
+                        },
                     ],
                 },
-                {"directory": "x\\Busy", "files": [{"id": "3", "filename": "x\\Busy\\1.mp3", "state": "InProgress", "size": 9}]},
+                {
+                    "directory": "x\\Busy",
+                    "files": [
+                        {
+                            "id": "3",
+                            "filename": "x\\Busy\\1.mp3",
+                            "state": "InProgress",
+                            "size": 9,
+                        }
+                    ],
+                },
             ],
         }
     ]
     [item] = client.get("/api/music/discover?row=recent").get_json()["items"]
-    assert item["title"] == "Album" and item["cover"] == soulseek.cover_key("alice", "x\\Album\\cover.jpg")
+    assert item["title"] == "Album" and item["cover"] == soulseek.cover_key(
+        "alice", "x\\Album\\cover.jpg"
+    )
 
 
-def test_liking_a_recommendation_is_sent_and_remembered(client, service, tmp_path, monkeypatch):
+def test_liking_a_recommendation_is_sent_and_remembered(
+    client, service, tmp_path, monkeypatch
+):
     from h0melab.web import soulseek_runtime
 
     monkeypatch.setattr(soulseek_runtime, "base_dir", lambda: tmp_path)
     calls, _ = service
-    assert client.post("/api/music/like", json={"item": "  daft   punk "}).get_json() == {"item": "daft punk"}
+    assert client.post(
+        "/api/music/like", json={"item": "  daft   punk "}
+    ).get_json() == {"item": "daft punk"}
     assert ("POST", "/interests", {"item": "daft punk"}, None) in calls
     assert (tmp_path / "likes.json").read_text() == '["daft punk"]'
     assert client.post("/api/music/like", json={"item": ""}).status_code == 400
@@ -316,15 +442,22 @@ def test_service_script_stays_separate_from_the_app():
     )
     assert (script.parent / "LICENSE").is_file()
     app_sources = Path(soulseek.__file__).parent.rglob("*.py")
-    assert not any("aioslsk" in line and line.lstrip().startswith(("import", "from"))
-                   for source in app_sources for line in source.read_text(encoding="utf-8").splitlines())
+    assert not any(
+        "aioslsk" in line and line.lstrip().startswith(("import", "from"))
+        for source in app_sources
+        for line in source.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def test_queue_page_has_the_soulseek_section(client):
     html = client.get("/queue").get_data(as_text=True)
     assert 'id="soulseekQueue"' in html and "soulseek-queue.js" in html
     music = client.get("/music").get_data(as_text=True)
-    assert 'data-row="global"' in music and "musicTransfers" not in music and "deezer" not in music.lower()
+    assert (
+        'data-row="global"' in music
+        and "musicTransfers" not in music
+        and "deezer" not in music.lower()
+    )
 
 
 def _finished(music_dir, *names, state="Completed, Succeeded"):
@@ -333,9 +466,18 @@ def _finished(music_dir, *names, state="Completed, Succeeded"):
     files = []
     for index, name in enumerate(names):
         (album / name).write_bytes(b"audio")
-        files.append({"id": str(index), "filename": f"x/Album/{name}", "state": state,
-                      "size": 5, "localPath": str(album / name)})
-    return [{"username": "alice", "directories": [{"directory": "x/Album", "files": files}]}]
+        files.append(
+            {
+                "id": str(index),
+                "filename": f"x/Album/{name}",
+                "state": state,
+                "size": 5,
+                "localPath": str(album / name),
+            }
+        )
+    return [
+        {"username": "alice", "directories": [{"directory": "x/Album", "files": files}]}
+    ]
 
 
 @pytest.fixture
@@ -360,7 +502,9 @@ def converter(monkeypatch, service, music_dir):
     return music_convert, runs
 
 
-def test_finished_downloads_are_converted_to_mp3(converter, service, music_dir, tmp_path):
+def test_finished_downloads_are_converted_to_mp3(
+    converter, service, music_dir, tmp_path
+):
     music_convert, runs = converter
     _, answers = service
     outside = tmp_path / "library" / "keep.flac"
@@ -368,7 +512,13 @@ def test_finished_downloads_are_converted_to_mp3(converter, service, music_dir, 
     outside.write_bytes(b"x")
     listing = _finished(music_dir, "01.flac", "02.mp3", "03.m4a")
     listing[0]["directories"][0]["files"].append(
-        {"id": "9", "filename": "x/keep.flac", "state": "Completed, Succeeded", "localPath": str(outside)})
+        {
+            "id": "9",
+            "filename": "x/keep.flac",
+            "state": "Completed, Succeeded",
+            "localPath": str(outside),
+        }
+    )
     answers[("GET", "/transfers/downloads")] = listing
     assert music_convert.convert_finished() == 2
     album = music_dir / "Album"
@@ -378,10 +528,14 @@ def test_finished_downloads_are_converted_to_mp3(converter, service, music_dir, 
     assert "attached_pic" in runs[0]
 
 
-def test_unfinished_or_disabled_downloads_stay_untouched(converter, service, music_dir, monkeypatch):
+def test_unfinished_or_disabled_downloads_stay_untouched(
+    converter, service, music_dir, monkeypatch
+):
     music_convert, runs = converter
     _, answers = service
-    answers[("GET", "/transfers/downloads")] = _finished(music_dir, "01.flac", state="InProgress")
+    answers[("GET", "/transfers/downloads")] = _finished(
+        music_dir, "01.flac", state="InProgress"
+    )
     assert music_convert.convert_finished() == 0
     answers[("GET", "/transfers/downloads")] = _finished(music_dir, "01.flac")
     monkeypatch.setenv("H0MELAB_MUSIC_CONVERT_MP3", "0")
@@ -389,7 +543,9 @@ def test_unfinished_or_disabled_downloads_stay_untouched(converter, service, mus
     assert runs == [] and (music_dir / "Album" / "01.flac").exists()
 
 
-def test_failed_conversion_keeps_the_original(converter, service, music_dir, monkeypatch):
+def test_failed_conversion_keeps_the_original(
+    converter, service, music_dir, monkeypatch
+):
     music_convert, runs = converter
     _, answers = service
     from types import SimpleNamespace
@@ -409,8 +565,19 @@ def test_failed_conversion_keeps_the_original(converter, service, music_dir, mon
 
 
 def test_mp3_settings_round_trip(client):
-    assert client.put("/api/settings", json={"soulseek": {"mp3_bitrate": "999k"}}).status_code == 400
-    assert client.put("/api/settings", json={"soulseek": {"convert_mp3": False, "mp3_bitrate": "V0"}}).status_code == 200
+    assert (
+        client.put(
+            "/api/settings", json={"soulseek": {"mp3_bitrate": "999k"}}
+        ).status_code
+        == 400
+    )
+    assert (
+        client.put(
+            "/api/settings",
+            json={"soulseek": {"convert_mp3": False, "mp3_bitrate": "V0"}},
+        ).status_code
+        == 200
+    )
     cfg = client.get("/api/settings").get_json()["soulseek"]
     assert cfg["convert_mp3"] is False and cfg["mp3_bitrate"] == "V0"
 
@@ -418,7 +585,8 @@ def test_mp3_settings_round_trip(client):
 def test_non_music_interests_are_left_out(client, service):
     _, answers = service
     answers[("GET", "/discover/recommendations")] = [
-        {"item": name, "score": 1} for name in ("linux", "Piracy", "flac", ":3", "jazz", "drum & bass")
+        {"item": name, "score": 1}
+        for name in ("linux", "Piracy", "flac", ":3", "jazz", "drum & bass")
     ]
     rows = client.get("/api/music/discover?row=global").get_json()["items"]
     assert [r["title"] for r in rows] == ["jazz", "drum & bass"]
@@ -430,15 +598,27 @@ def test_nameless_downloads_get_their_real_name_back(converter, service, music_d
     album = music_dir / "Stadtaffe"
     album.mkdir(parents=True)
     files = []
-    for index, title in enumerate(["01 - Alles neu.flac", "02 - Schwarz zu blau.mp3"], start=1):
+    for index, title in enumerate(
+        ["01 - Alles neu.flac", "02 - Schwarz zu blau.mp3"], start=1
+    ):
         local = album / f" ({index})"
         local.write_bytes(b"audio")
-        files.append({"id": str(index), "filename": rf"@@music\Peter Fox\Stadtaffe\{title}",
-                      "state": "Completed, Succeeded", "localPath": str(local)})
+        files.append(
+            {
+                "id": str(index),
+                "filename": rf"@@music\Peter Fox\Stadtaffe\{title}",
+                "state": "Completed, Succeeded",
+                "localPath": str(local),
+            }
+        )
     answers[("GET", "/transfers/downloads")] = [
-        {"username": "alice", "directories": [{"directory": "x", "files": files}]}]
+        {"username": "alice", "directories": [{"directory": "x", "files": files}]}
+    ]
     assert music_convert.convert_finished() == 1
-    assert sorted(p.name for p in album.iterdir()) == ["01 - Alles neu.mp3", "02 - Schwarz zu blau.mp3"]
+    assert sorted(p.name for p in album.iterdir()) == [
+        "01 - Alles neu.mp3",
+        "02 - Schwarz zu blau.mp3",
+    ]
 
 
 def test_service_names_files_after_the_remote_file():
@@ -448,10 +628,18 @@ def test_service_names_files_after_the_remote_file():
     import h0melab
 
     # The service runs in its own venv with aioslsk, so read it instead of importing
-    source = (Path(h0melab.__file__).parent / "soulseek_service" / "service.py").read_text(encoding="utf-8")
-    calls = [node for node in ast.walk(ast.parse(source))
-             if isinstance(node, ast.Assign) and any(
-                 isinstance(t, ast.Attribute) and t.attr == "naming_strategies" for t in node.targets)]
+    source = (
+        Path(h0melab.__file__).parent / "soulseek_service" / "service.py"
+    ).read_text(encoding="utf-8")
+    calls = [
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Assign)
+        and any(
+            isinstance(t, ast.Attribute) and t.attr == "naming_strategies"
+            for t in node.targets
+        )
+    ]
     names = [element.func.id for element in calls[0].value.elts]
     assert names[0] == "DefaultNamingStrategy"
 
@@ -465,7 +653,9 @@ def library(converter, monkeypatch):
     tags = {}
     refreshed = []
     monkeypatch.setattr(music_convert, "_probe", lambda path: tags.get(path.stem, {}))
-    monkeypatch.setattr(music_convert, "scan_libraries", lambda: refreshed.append("music"))
+    monkeypatch.setattr(
+        music_convert, "scan_libraries", lambda: refreshed.append("music")
+    )
     return music_convert, tags, refreshed
 
 
@@ -475,23 +665,43 @@ def _listing(music_dir, folder, names, remote="@@music/Peter Fox/Stadtaffe"):
     files = []
     for index, (local_name, remote_name) in enumerate(names):
         (album / local_name).write_bytes(b"data")
-        files.append({"id": str(index), "filename": f"{remote}/{remote_name}",
-                      "state": "Completed, Succeeded", "localPath": str(album / local_name)})
-    return [{"username": "alice", "directories": [{"directory": remote, "files": files}]}]
+        files.append(
+            {
+                "id": str(index),
+                "filename": f"{remote}/{remote_name}",
+                "state": "Completed, Succeeded",
+                "localPath": str(album / local_name),
+            }
+        )
+    return [
+        {"username": "alice", "directories": [{"directory": remote, "files": files}]}
+    ]
 
 
 def test_albums_are_sorted_into_artist_and_album_folders(library, service, music_dir):
     music_convert, tags, refreshed = library
     _, answers = service
-    tags["01 - Alles neu"] = {"album_artist": "Peter Fox", "artist": "Peter Fox feat. X",
-                              "album": "Stadtaffe: Deluxe?"}
-    answers[("GET", "/transfers/downloads")] = _listing(music_dir, "Stadtaffe", [
-        (" (1)", "01 - Alles neu.flac"), ("02 - Haus am See.mp3", "02 - Haus am See.mp3"),
-        ("front.jpg", "front.jpg")])
+    tags["01 - Alles neu"] = {
+        "album_artist": "Peter Fox",
+        "artist": "Peter Fox feat. X",
+        "album": "Stadtaffe: Deluxe?",
+    }
+    answers[("GET", "/transfers/downloads")] = _listing(
+        music_dir,
+        "Stadtaffe",
+        [
+            (" (1)", "01 - Alles neu.flac"),
+            ("02 - Haus am See.mp3", "02 - Haus am See.mp3"),
+            ("front.jpg", "front.jpg"),
+        ],
+    )
     assert music_convert.convert_finished() == 1
     album = music_dir / "Peter Fox" / "Stadtaffe_ Deluxe_"
     assert sorted(p.name for p in album.iterdir()) == [
-        "01 - Alles neu.mp3", "02 - Haus am See.mp3", "cover.jpg"]
+        "01 - Alles neu.mp3",
+        "02 - Haus am See.mp3",
+        "cover.jpg",
+    ]
     assert not (music_dir / "Stadtaffe").exists()  # the client's folder is tidied up
     assert refreshed == ["music"]
     # A second pass finds nothing left to do and does not scan again
@@ -502,7 +712,11 @@ def test_untagged_albums_use_the_remote_folders(library, service, music_dir):
     music_convert = library[0]
     _, answers = service
     answers[("GET", "/transfers/downloads")] = _listing(
-        music_dir, "Stadtaffe", [("03.mp3", "03.mp3")], remote="D:/Musik/Peter Fox/Stadtaffe")
+        music_dir,
+        "Stadtaffe",
+        [("03.mp3", "03.mp3")],
+        remote="D:/Musik/Peter Fox/Stadtaffe",
+    )
     music_convert.convert_finished()
     assert (music_dir / "Peter Fox" / "Stadtaffe" / "03.mp3").is_file()
 
@@ -513,7 +727,9 @@ def test_existing_files_are_not_overwritten(library, service, music_dir):
     target.mkdir(parents=True)
     (target / "03.mp3").write_bytes(b"old")
     _, answers = service
-    answers[("GET", "/transfers/downloads")] = _listing(music_dir, "Stadtaffe", [("03.mp3", "03.mp3")])
+    answers[("GET", "/transfers/downloads")] = _listing(
+        music_dir, "Stadtaffe", [("03.mp3", "03.mp3")]
+    )
     music_convert.convert_finished()
     assert (target / "03.mp3").read_bytes() == b"old"
     assert (target / "03 (1).mp3").is_file()
@@ -534,8 +750,14 @@ def test_library_scan_waits_until_the_whole_album_is_done(library, service, musi
     _, answers = service
     listing = _listing(music_dir, "Stadtaffe", [("01.mp3", "01.mp3")])
     files = listing[0]["directories"][0]["files"]
-    files.append({"id": "9", "filename": "@@music/Peter Fox/Stadtaffe/02.mp3",
-                  "state": "InProgress", "localPath": ""})
+    files.append(
+        {
+            "id": "9",
+            "filename": "@@music/Peter Fox/Stadtaffe/02.mp3",
+            "state": "InProgress",
+            "localPath": "",
+        }
+    )
     answers[("GET", "/transfers/downloads")] = listing
     music_convert.convert_finished()
     assert (music_dir / "Peter Fox" / "Stadtaffe" / "01.mp3").is_file()
@@ -554,7 +776,9 @@ def test_music_scan_uses_jellyfin_and_plex(monkeypatch):
     from h0melab.web import jellyfin, music_convert, plex
 
     calls = []
-    monkeypatch.setattr(jellyfin, "refresh", lambda kind: calls.append(("jellyfin", kind)))
+    monkeypatch.setattr(
+        jellyfin, "refresh", lambda kind: calls.append(("jellyfin", kind))
+    )
     monkeypatch.setattr(plex, "refresh", lambda kind: calls.append(("plex", kind)))
     music_convert.scan_libraries()
     assert calls == [("jellyfin", "music"), ("plex", "music")]
