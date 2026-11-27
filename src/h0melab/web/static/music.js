@@ -136,17 +136,30 @@
     pulse.classList.add("active");
     statusText.textContent = t("music.searching", "Searching the Soulseek network…");
     message(results, t("music.waiting", "Waiting for answers from other users…"));
-    try {
-      const data = await apiSend("/api/music/search", "POST", { q: text });
-      if (generation !== searchGeneration) return;
-      searchId = data.id;
-      poll(generation);
-    } catch (error) {
-      if (generation !== searchGeneration) return;
-      pulse.classList.remove("active");
-      statusText.textContent = "";
-      message(results, error.message);
-      searchButton.disabled = false;
+    // A short server drop heals itself: wait for the reconnect, then search
+    const deadline = Date.now() + 3 * 60 * 1000;
+    while (true) {
+      try {
+        const data = await apiSend("/api/music/search", "POST", { q: text });
+        if (generation !== searchGeneration) return;
+        searchId = data.id;
+        statusText.textContent = t("music.searching", "Searching the Soulseek network…");
+        poll(generation);
+        return;
+      } catch (error) {
+        if (generation !== searchGeneration) return;
+        if (error.status === 503 && Date.now() < deadline) {
+          statusText.textContent = t("music.reconnecting", "Reconnecting to Soulseek, the search starts automatically…");
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          if (generation !== searchGeneration) return;
+          continue;
+        }
+        pulse.classList.remove("active");
+        statusText.textContent = "";
+        message(results, error.message);
+        searchButton.disabled = false;
+        return;
+      }
     }
   });
 

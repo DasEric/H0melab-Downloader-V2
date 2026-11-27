@@ -439,6 +439,7 @@ def transfers():
                         "speed": float(entry.get("averageSpeed") or 0),
                         "queue_position": entry.get("placeInQueue"),
                         "requested_at": entry.get("requestedAt") or "",
+                        "converting": state == "completed" and _converting(entry.get("localPath")),
                     }
                 )
             if not files:
@@ -561,6 +562,12 @@ def local_file(filename):
     return candidate
 
 
+def _converting(local_path):
+    from . import music_convert
+
+    return bool(local_path) and music_convert.is_converting(local_path)
+
+
 def _inside_music(local_path):
     """A path the service reported, accepted only inside the music folder."""
     if not local_path:
@@ -676,6 +683,19 @@ def fetch_cover(username, filename, size):
 # Discover: only what the Soulseek network itself provides
 # ---------------------------------------------------------------------------
 DISCOVER_LIMIT = 24
+# Soulseek interests are free-form user tags; these popular ones are not music
+NON_MUSIC_INTERESTS = frozenset({
+    "linux", "open source", "free software", "computers", "programming", "piracy",
+    "people who share", "sharing", "preservation", "nicotine+", "soulseek", "trans rights",
+    "lgbtq+", "lgbt", "lgbtq", "politics", "art", "books", "movies", "films", "cats", "dogs",
+    "anime", "games", "video games", "gaming", "privacy", "freedom", "internet", "archiving",
+    "flac", "lossless", "mp3", "music", ":3",
+})
+
+
+def _is_music_interest(name):
+    lowered = name.casefold()
+    return lowered not in NON_MUSIC_INTERESTS and any(char.isalnum() for char in lowered)
 
 
 def _recommendation_items(rows):
@@ -684,7 +704,7 @@ def _recommendation_items(rows):
         if not isinstance(row, dict):
             continue
         name = " ".join(str(row.get("item") or "").split())
-        if not name:
+        if not name or not _is_music_interest(name):
             continue
         items.append({"kind": "interest", "title": name, "score": int(row.get("score") or 0), "query": name})
         if len(items) >= DISCOVER_LIMIT:

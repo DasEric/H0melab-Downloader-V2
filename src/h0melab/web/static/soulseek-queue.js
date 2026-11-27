@@ -65,6 +65,7 @@
       `${group.completed}/${group.files.length} ${t("music.tracks_short", "tracks")}`,
       `${formatSize(group.transferred)} / ${formatSize(group.size)}`,
       group.state === "running" ? speed(group.speed) : "",
+      group.files.some((file) => file.converting) ? t("music.converting", "Converting to MP3…") : "",
     ].filter(Boolean).join(" · ");
     const thumb = group.cover
       ? `<img class="music-thumb" src="/api/music/cover/${encodeURIComponent(group.cover)}" alt="" />`
@@ -94,7 +95,9 @@
           <div class="music-transfer-file">
             <span class="ep-title">${esc(file.name)}</span>
             <span class="music-track-meta">${esc(
-              file.state === "running"
+              file.converting
+                ? t("music.converting", "Converting to MP3…")
+                : file.state === "running"
                 ? `${Math.round(file.percent)}% · ${speed(file.speed)}`
                 : file.state === "queued" && file.queue_position
                   ? `${stateLabel("queued")} #${file.queue_position}`

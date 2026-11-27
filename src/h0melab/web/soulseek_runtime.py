@@ -111,7 +111,7 @@ def credentials():
 
 
 def settings():
-    from . import soulseek
+    from . import music_convert, soulseek
 
     username, _, generated = credentials() if _configured_once() else ("", "", True)
     return {
@@ -124,6 +124,7 @@ def settings():
         "share_downloads": share_downloads(),
         "music_path": os.environ.get(soulseek.KEYS["music_path"], "").strip(),
         "music_path_effective": str(soulseek.music_path()),
+        **music_convert.settings(),
         "status": status(),
     }
 
@@ -171,6 +172,9 @@ def collect_settings(payload, updates):
         from .soulseek import KEYS as SOULSEEK_KEYS
 
         updates[SOULSEEK_KEYS["music_path"]] = value.strip()
+    from . import music_convert
+
+    music_convert.collect_settings(payload, updates)
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +399,9 @@ def ensure_started():
         _set("starting", "Starting the Soulseek client…")
         _supervisor = threading.Thread(target=_supervise, name="h0melab-soulseek", daemon=True)
         _supervisor.start()
+    from . import music_convert
+
+    music_convert.start()
 
 
 def start_if_used_before():

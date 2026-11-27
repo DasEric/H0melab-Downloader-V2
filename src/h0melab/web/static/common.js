@@ -54,7 +54,9 @@ async function apiFetch(url, options) {
   }
   if (!response.ok) {
     const message = (data && data.error) || `Request failed (${response.status})`;
-    throw new Error(message);
+    const failure = new Error(message);
+    failure.status = response.status;
+    throw failure;
   }
   return data || {};
 }

@@ -325,3 +325,98 @@ def test_queue_page_has_the_soulseek_section(client):
     assert 'id="soulseekQueue"' in html and "soulseek-queue.js" in html
     music = client.get("/music").get_data(as_text=True)
     assert 'data-row="global"' in music and "musicTransfers" not in music and "deezer" not in music.lower()
+
+
+def _finished(music_dir, *names, state="Completed, Succeeded"):
+    album = music_dir / "Album"
+    album.mkdir(parents=True, exist_ok=True)
+    files = []
+    for index, name in enumerate(names):
+        (album / name).write_bytes(b"audio")
+        files.append({"id": str(index), "filename": f"x/Album/{name}", "state": state,
+                      "size": 5, "localPath": str(album / name)})
+    return [{"username": "alice", "directories": [{"directory": "x/Album", "files": files}]}]
+
+
+@pytest.fixture
+def converter(monkeypatch, service, music_dir):
+    from h0melab.web import music_convert
+
+    music_convert._failed.clear()
+    runs = []
+
+    def fake_run(command):
+        runs.append(command)
+        from pathlib import Path
+        from types import SimpleNamespace
+
+        Path(command[-1]).write_bytes(b"mp3")
+        return SimpleNamespace(returncode=0, stderr="")
+
+    monkeypatch.setattr(music_convert, "_ffmpeg", lambda: "ffmpeg")
+    monkeypatch.setattr(music_convert, "_run", fake_run)
+    return music_convert, runs
+
+
+def test_finished_downloads_are_converted_to_mp3(converter, service, music_dir, tmp_path):
+    music_convert, runs = converter
+    _, answers = service
+    outside = tmp_path / "library" / "keep.flac"
+    outside.parent.mkdir()
+    outside.write_bytes(b"x")
+    listing = _finished(music_dir, "01.flac", "02.mp3", "03.m4a")
+    listing[0]["directories"][0]["files"].append(
+        {"id": "9", "filename": "x/keep.flac", "state": "Completed, Succeeded", "localPath": str(outside)})
+    answers[("GET", "/transfers/downloads")] = listing
+    assert music_convert.convert_finished() == 2
+    album = music_dir / "Album"
+    assert sorted(p.name for p in album.iterdir()) == ["01.mp3", "02.mp3", "03.mp3"]
+    assert outside.exists()  # never touches files outside the music folder
+    assert "libmp3lame" in runs[0] and runs[0][runs[0].index("-b:a") + 1] == "320k"
+    assert "attached_pic" in runs[0]
+
+
+def test_unfinished_or_disabled_downloads_stay_untouched(converter, service, music_dir, monkeypatch):
+    music_convert, runs = converter
+    _, answers = service
+    answers[("GET", "/transfers/downloads")] = _finished(music_dir, "01.flac", state="InProgress")
+    assert music_convert.convert_finished() == 0
+    answers[("GET", "/transfers/downloads")] = _finished(music_dir, "01.flac")
+    monkeypatch.setenv("H0MELAB_MUSIC_CONVERT_MP3", "0")
+    assert music_convert.convert_finished() == 0
+    assert runs == [] and (music_dir / "Album" / "01.flac").exists()
+
+
+def test_failed_conversion_keeps_the_original(converter, service, music_dir, monkeypatch):
+    music_convert, runs = converter
+    _, answers = service
+    from types import SimpleNamespace
+
+    def broken(command):
+        runs.append(command)
+        return SimpleNamespace(returncode=1, stderr="bad file")
+
+    monkeypatch.setattr(music_convert, "_run", broken)
+    answers[("GET", "/transfers/downloads")] = _finished(music_dir, "01.flac")
+    assert music_convert.convert_finished() == 0
+    # Retried once without the cover stream, then given up for good
+    assert len(runs) == 2 and "attached_pic" not in runs[1]
+    assert (music_dir / "Album" / "01.flac").exists()
+    assert not list((music_dir / "Album").glob("*.mp3"))
+    assert music_convert.convert_finished() == 0 and len(runs) == 2
+
+
+def test_mp3_settings_round_trip(client):
+    assert client.put("/api/settings", json={"soulseek": {"mp3_bitrate": "999k"}}).status_code == 400
+    assert client.put("/api/settings", json={"soulseek": {"convert_mp3": False, "mp3_bitrate": "V0"}}).status_code == 200
+    cfg = client.get("/api/settings").get_json()["soulseek"]
+    assert cfg["convert_mp3"] is False and cfg["mp3_bitrate"] == "V0"
+
+
+def test_non_music_interests_are_left_out(client, service):
+    _, answers = service
+    answers[("GET", "/discover/recommendations")] = [
+        {"item": name, "score": 1} for name in ("linux", "Piracy", "flac", ":3", "jazz", "drum & bass")
+    ]
+    rows = client.get("/api/music/discover?row=global").get_json()["items"]
+    assert [r["title"] for r in rows] == ["jazz", "drum & bass"]

@@ -21,6 +21,7 @@
     else if (live && live.phase === 'running') parts.push('verbindet mit Soulseek …');
     else if (cfg.active_username) parts.push(`Konto ${cfg.active_username}${cfg.generated_account ? ' (automatisch angelegt)' : ''}`);
     if (phase.message && phase.phase !== 'running') parts.push(phase.message);
+    if (cfg.convert_mp3 && cfg.ffmpeg_found === false) parts.push('ffmpeg fehlt – MP3-Umwandlung pausiert');
     return parts.filter(Boolean).join(' · ');
   }
 
@@ -36,6 +37,8 @@
       el('soulseekMusicPath').placeholder = cfg.music_path_effective || '';
       el('soulseekPort').value = cfg.listen_port;
       el('soulseekShare').checked = cfg.share_downloads;
+      el('soulseekConvert').checked = cfg.convert_mp3;
+      el('soulseekBitrate').value = cfg.mp3_bitrate || '320k';
     }
     let live = null;
     if (cfg.status && cfg.status.phase === 'running') {
@@ -57,6 +60,8 @@
         music_path: el('soulseekMusicPath').value,
         listen_port: el('soulseekPort').value,
         share_downloads: el('soulseekShare').checked,
+        convert_mp3: el('soulseekConvert').checked,
+        mp3_bitrate: el('soulseekBitrate').value,
       };
       if (el('soulseekPassword').value) cfg.password = el('soulseekPassword').value;
       if (!cfg.username) cfg.password = '';

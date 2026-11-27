@@ -51,6 +51,7 @@ log = logging.getLogger("h0melab-soulseek")
 
 SEARCH_SECONDS = 15
 SEARCH_KEEP_SECONDS = 15 * 60
+LOST_SESSION_SECONDS = 180
 RECONNECT_DELAYS = (10, 30, 60, 120, 300)
 
 
@@ -59,7 +60,6 @@ class Service:
         self.config = config
         self.client = None
         self.state = "Starting"
-        self.logged_in = False
         self.error = ""
         self.searches = {}  # id -> (request, started_monotonic, text)
         self.transfer_ids = {}  # id(transfer) -> uuid
@@ -78,6 +78,9 @@ class Service:
         settings.network.listening.port = int(cfg.get("listen_port", 60000))
         settings.network.listening.obfuscated_port = int(cfg.get("listen_port", 60000)) + 1
         settings.network.upnp.enabled = bool(cfg.get("upnp", True))
+        # aioslsk reconnects and logs back in by itself after short drops
+        settings.network.server.reconnect.auto = True
+        settings.network.server.reconnect.timeout = 15
         settings.interests.liked = set(cfg.get("liked", []))
         if cfg.get("server_host"):
             settings.network.server.hostname = cfg["server_host"]
@@ -105,7 +108,6 @@ class Service:
                 await self.client.start()
                 await self.client.login()
                 self.state = "Connected, LoggedIn"
-                self.logged_in = True
                 self.error = ""
                 attempt = 0
                 log.info("logged in to Soulseek as %s", self.config["username"])
@@ -115,7 +117,6 @@ class Service:
             except Exception as exc:  # any failure: report it and retry later
                 self.error = f"{type(exc).__name__}: {exc}"
                 log.warning("Soulseek session failed: %s", self.error)
-            self.logged_in = False
             self.state = "Disconnected"
             if self.client is not None:
                 try:
@@ -126,14 +127,33 @@ class Service:
             attempt += 1
             await asyncio.sleep(delay)
 
+    @property
+    def logged_in(self):
+        return self.client is not None and getattr(self.client, "session", None) is not None
+
     async def wait_until_disconnected(self):
+        """Watch the session; only rebuild the client if it stays gone.
+
+        Short drops are healed by aioslsk itself (reconnect + login), so a
+        full restart only happens after LOST_SESSION_SECONDS without a login.
+        """
+        lost_since = None
         while True:
             await asyncio.sleep(5)
-            connection = getattr(self.client.network, "server_connection", None)
-            state = getattr(getattr(connection, "state", None), "name", "")
-            if state and state not in ("CONNECTED", "CONNECTING"):
-                raise ConnectionError(f"server connection {state.lower()}")
             self.cleanup_searches()
+            if self.logged_in:
+                if lost_since is not None:
+                    log.info("Soulseek session restored")
+                lost_since = None
+                self.state = "Connected, LoggedIn"
+                self.error = ""
+                continue
+            if lost_since is None:
+                log.warning("lost the Soulseek session, waiting for the automatic reconnect")
+                lost_since = time.monotonic()
+                self.state = "Connecting"
+            if time.monotonic() - lost_since > LOST_SESSION_SECONDS:
+                raise ConnectionError("the Soulseek server connection did not come back")
 
     def cleanup_searches(self):
         now = time.monotonic()

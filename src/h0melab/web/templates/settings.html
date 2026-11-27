@@ -707,6 +707,14 @@
           <label class="field"><span class="field-label">Soulseek-Port</span><input id="soulseekPort" type="number" min="1024" max="65534" /></label>
           <p class="hint">Eingehende Verbindungen anderer Nutzer. Wird per UPnP automatisch am Router geöffnet; sonst diesen Port und Port+1 (TCP) weiterleiten. In Docker beide Ports veröffentlichen.</p>
           <label class="checkbox"><input id="soulseekShare" type="checkbox" /> Musik-Ordner im Soulseek-Netz teilen (empfohlen, viele Nutzer laden sonst nicht an dich hoch)</label>
+          <label class="checkbox"><input id="soulseekConvert" type="checkbox" /> Heruntergeladene Musik immer in MP3 umwandeln (FLAC, WAV, M4A, OGG … mit ffmpeg; Tags und Cover bleiben erhalten, das Original wird danach gelöscht)</label>
+          <label class="field"><span class="field-label">MP3-Qualität</span><select id="soulseekBitrate">
+            <option value="320k">320 kbit/s (beste)</option>
+            <option value="V0">VBR V0 (~245 kbit/s)</option>
+            <option value="256k">256 kbit/s</option>
+            <option value="192k">192 kbit/s</option>
+            <option value="128k">128 kbit/s</option>
+          </select></label>
           <p class="integration-status hint" id="soulseekStatus" role="status" aria-live="polite"></p>
           <div class="action-row">
             <button type="button" class="btn btn-secondary" id="updateSoulseek">Client aktualisieren</button>
@@ -884,7 +892,7 @@
 {% block scripts %}
 <script defer src="{{ url_for('static', filename='plex-settings.js') }}?v={{ app_version }}-plex-login-local-v2"></script>
 <script defer src="{{ url_for('static', filename='jellyfin-settings.js') }}?v={{ app_version }}-library-select-v2"></script>
-<script defer src="{{ url_for('static', filename='soulseek-settings.js') }}?v={{ app_version }}-soulseek-v3"></script>
+<script defer src="{{ url_for('static', filename='soulseek-settings.js') }}?v={{ app_version }}-soulseek-v4"></script>
 <script defer src="{{ url_for('static', filename='seerr-settings.js') }}?v={{ app_version }}"></script>
 <script>
   window.AUTH_ENABLED = {{ auth_enabled | tojson }};

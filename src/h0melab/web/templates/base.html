@@ -24,7 +24,7 @@
   <script>
     window.UI_LANGUAGE = {{ ui_language | tojson }};
   </script>
-  <script src="{{ url_for('static', filename='i18n.js') }}?v={{ app_version }}-zdf-dmax-search-v2"></script>
+  <script src="{{ url_for('static', filename='i18n.js') }}?v={{ app_version }}-zdf-dmax-search-v2-music2"></script>
   {% block head %}{% endblock %}
 </head>
 
@@ -92,7 +92,7 @@
 
   <div class="toast" id="toast" role="status"></div>
 
-  <script src="{{ url_for('static', filename='common.js') }}?v={{ app_version }}"></script>
+  <script src="{{ url_for('static', filename='common.js') }}?v={{ app_version }}-music2"></script>
   <script src="{{ url_for('static', filename='queue-badge.js') }}?v={{ app_version }}"></script>
   {% if custom_shader_version and request.args.get('nocss') != '1' %}
   <script src="{{ url_for('static', filename='shader.js') }}?v={{ app_version }}" defer></script>

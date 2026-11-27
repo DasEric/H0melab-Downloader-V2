@@ -32,6 +32,8 @@
       "music.filter_free": "Nur freier Slot",
       "music.tracks": "Titel",
       "music.tracks_short": "Titel",
+      "music.converting": "Wird in MP3 umgewandelt …",
+      "music.reconnecting": "Verbindung zu Soulseek wird wiederhergestellt, die Suche startet automatisch …",
       "music.searching": "Soulseek-Netzwerk wird durchsucht …",
       "music.waiting": "Warte auf Antworten anderer Nutzer …",
       "music.summary": "{releases} Ordner von {users} Nutzern",
