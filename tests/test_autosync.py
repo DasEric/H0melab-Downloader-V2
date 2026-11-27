@@ -371,6 +371,39 @@ def test_associated_aniworld_movies_are_not_part_of_episode_autosync(monkeypatch
     assert offered == {}
 
 
+def test_a_season_without_language_flags_does_not_block_the_series(monkeypatch):
+    """An announced season with no streams yet must not stop Auto-Sync."""
+
+    class FakeEpisode:
+        def __init__(self, season, number):
+            self.episode_number = number
+            self.url = f"{STO}/staffel-{season}/episode-{number}"
+
+    class FakeSeason:
+        are_movies = False
+
+        def __init__(self, number, languages):
+            self.season_number = number
+            self.episodes = [FakeEpisode(number, 1), FakeEpisode(number, 2)]
+            self.episode_languages = languages
+
+    class FakeProvider:
+        def series_cls(self, url):
+            series = FakeSeries()
+            series.seasons = [
+                FakeSeason(1, {1: ("German Dub",), 2: ("German Dub",)}),
+                FakeSeason(4, {}),
+            ]
+            return series
+
+    monkeypatch.setattr(autosync, "resolve_provider", lambda url: FakeProvider())
+    _series, offered = autosync._remote_inventory(STO, "German Dub")
+    assert offered == {
+        f"{STO}/staffel-1/episode-1": (1, 1),
+        f"{STO}/staffel-1/episode-2": (1, 2),
+    }
+
+
 def test_non_separated_library_checks_each_files_language(monkeypatch, downloads):
     folder = downloads / "Naruto"
     folder.mkdir()

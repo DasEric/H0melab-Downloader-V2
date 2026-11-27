@@ -149,9 +149,15 @@ def _remote_inventory(series_url, language):
         episodes = list(season.episodes)
         available = season.episode_languages
         if episodes and not available:
-            raise RuntimeError(
-                f"Could not determine episode languages for season {season.season_number}."
+            # Usually a season that is announced but not streamable yet. Leave
+            # it out for now: it is not in the baseline either, so its
+            # episodes count as new once the site lists their languages.
+            logger.warning(
+                "AutoSync: no episode languages for season %s of %s, skipping it",
+                season.season_number,
+                series_url,
             )
+            continue
         for episode in episodes:
             number = episode.episode_number
             if number is None or language not in available.get(number, ()):
