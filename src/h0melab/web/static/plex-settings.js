@@ -18,6 +18,7 @@
     el('plexUrl').value = cfg.url;
     choices('plexMovie', [], cfg.movie_library_id);
     choices('plexSeries', [], cfg.series_library_id);
+    choices('plexMusic', [], cfg.music_library_id);
     status(`Plex-Token ${cfg.key_set ? 'gespeichert' : 'fehlt'} · ${cfg.url ? 'Server konfiguriert' : 'Deaktiviert'}`);
   }
   el('loadPlexLibraries').addEventListener('click', async () => {
@@ -39,14 +40,15 @@
       if (!Array.isArray(data.libraries)) throw new Error('Ungültige Serverantwort. Downloader aktualisieren und neu starten.');
       choices('plexMovie', data.libraries.filter(row => row.type === 'movies'), el('plexMovie').value);
       choices('plexSeries', data.libraries.filter(row => row.type === 'tvshows'), el('plexSeries').value);
-      status(data.libraries.length ? `${data.libraries.length} Film-/Serienbibliotheken geladen. Jetzt oben auswählen und speichern.` : 'Keine Film-/Serienbibliotheken gefunden. In Plex muss der Inhaltstyp Filme oder Serien eingestellt sein.');
+      choices('plexMusic', data.libraries.filter(row => row.type === 'music'), el('plexMusic').value);
+      status(data.libraries.length ? `${data.libraries.length} Bibliotheken geladen. Jetzt oben auswählen und speichern.` : 'Keine passenden Bibliotheken gefunden. In Plex muss der Inhaltstyp Filme, Serien oder Musik eingestellt sein.');
     } catch (error) { status(error.message); }
     finally { button.disabled = false; button.textContent = 'Bibliotheken laden'; }
   });
   el('savePlex').addEventListener('click', async () => {
     el('savePlex').disabled = true;
     try {
-      const cfg = {url: el('plexUrl').value, movie_library_id: el('plexMovie').value, series_library_id: el('plexSeries').value};
+      const cfg = {url: el('plexUrl').value, movie_library_id: el('plexMovie').value, series_library_id: el('plexSeries').value, music_library_id: el('plexMusic').value};
       if (el('plexClearKey').checked) cfg.api_key = '';
       else if (el('plexKey').value) cfg.api_key = el('plexKey').value;
       await apiSend('/api/settings', 'PUT', {plex: cfg});
@@ -122,8 +124,9 @@
       el('plexKey').value = ''; el('plexClearKey').checked = false;
       choices('plexMovie', data.libraries.filter(row => row.type === 'movies'), '');
       choices('plexSeries', data.libraries.filter(row => row.type === 'tvshows'), '');
+      choices('plexMusic', data.libraries.filter(row => row.type === 'music'), '');
       endLogin();
-      status('Plex-Verbindung und Token gespeichert. Film-/Serienbibliotheken auswählen und „Plex speichern“.');
+      status('Plex-Verbindung und Token gespeichert. Bibliotheken auswählen und „Plex speichern“.');
     } catch (error) { status(error.message); }
     finally { button.disabled = false; }
   });

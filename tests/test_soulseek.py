@@ -459,14 +459,13 @@ def test_service_names_files_after_the_remote_file():
 @pytest.fixture
 def library(converter, monkeypatch):
     """Converter with the Jellyfin layout on, fake tags and a recorded refresh."""
-    from h0melab.web import jellyfin
-
     music_convert, _ = converter
     monkeypatch.setenv(music_convert.KEYS["organize"], "1")
+    music_convert._unscanned.clear()
     tags = {}
     refreshed = []
     monkeypatch.setattr(music_convert, "_probe", lambda path: tags.get(path.stem, {}))
-    monkeypatch.setattr(jellyfin, "refresh", lambda kind: refreshed.append(kind) or True)
+    monkeypatch.setattr(music_convert, "scan_libraries", lambda: refreshed.append("music"))
     return music_convert, tags, refreshed
 
 
@@ -528,3 +527,34 @@ def test_jellyfin_layout_setting_round_trip(monkeypatch):
     assert updates == {music_convert.KEYS["organize"]: "0"}
     monkeypatch.setenv(music_convert.KEYS["organize"], "0")
     assert music_convert.settings()["jellyfin_layout"] is False
+
+
+def test_library_scan_waits_until_the_whole_album_is_done(library, service, music_dir):
+    music_convert, _, refreshed = library
+    _, answers = service
+    listing = _listing(music_dir, "Stadtaffe", [("01.mp3", "01.mp3")])
+    files = listing[0]["directories"][0]["files"]
+    files.append({"id": "9", "filename": "@@music/Peter Fox/Stadtaffe/02.mp3",
+                  "state": "InProgress", "localPath": ""})
+    answers[("GET", "/transfers/downloads")] = listing
+    music_convert.convert_finished()
+    assert (music_dir / "Peter Fox" / "Stadtaffe" / "01.mp3").is_file()
+    assert refreshed == []  # track 02 is still downloading
+    second = music_dir / "Stadtaffe" / "02.mp3"
+    second.parent.mkdir()
+    second.write_bytes(b"data")
+    files[1].update(state="Completed, Succeeded", localPath=str(second))
+    music_convert.convert_finished()
+    assert refreshed == ["music"]
+    music_convert.convert_finished()
+    assert refreshed == ["music"]  # one scan per album
+
+
+def test_music_scan_uses_jellyfin_and_plex(monkeypatch):
+    from h0melab.web import jellyfin, music_convert, plex
+
+    calls = []
+    monkeypatch.setattr(jellyfin, "refresh", lambda kind: calls.append(("jellyfin", kind)))
+    monkeypatch.setattr(plex, "refresh", lambda kind: calls.append(("plex", kind)))
+    music_convert.scan_libraries()
+    assert calls == [("jellyfin", "music"), ("plex", "music")]

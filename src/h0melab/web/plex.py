@@ -1,1 +1,231 @@
-"""Targeted, best-effort Plex library refresh after completed video files."""import osimport refrom urllib.parse import urlsplitimport niquestsfrom ..logger import get_loggerlogger = get_logger(__name__)KEYS = {    name: "H0MELAB_PLEX_" + name.upper()    for name in ("url", "api_key", "movie_library_id", "series_library_id")}def settings():    result = {        name: os.environ.get(key, "").strip()        for name, key in KEYS.items()        if name != "api_key"    }    result["key_set"] = bool(os.environ.get(KEYS["api_key"], "").strip())    return resultdef collect_settings(payload, updates):    from .settings_store import SECRET_PLACEHOLDER, SettingsError    if not isinstance(payload, dict):        raise SettingsError("Plex settings must be an object")    for name, key in KEYS.items():        if name not in payload:            continue        value = payload[name]        if not isinstance(value, str):            raise SettingsError("Invalid Plex setting")        value = value.strip()        if name == "api_key" and value == SECRET_PLACEHOLDER:            continue        if any(ord(c) < 32 or ord(c) == 127 for c in value):            raise SettingsError("Invalid Plex setting")        if name == "url" and value:            try:                parts = urlsplit(value)                valid = (                    parts.scheme in ("http", "https")                    and parts.hostname                    and not (                        parts.username                        or parts.password                        or parts.query                        or parts.fragment                    )                )                _ = parts.port            except ValueError:                valid = False            if not valid:                raise SettingsError(                    "Plex URL must be HTTP(S), without credentials, query or fragment"                )            value = value.rstrip("/")        elif name.endswith("library_id") and value:            if not re.fullmatch(r"[0-9]+", value) or int(value) <= 0:                raise SettingsError("Plex library ID must be a positive section number")        elif name == "api_key" and (len(value) > 512 or not value.isascii()):            raise SettingsError("Invalid Plex API key")        updates[key] = valuedef _request(session, url, token):    from .settings_store import SettingsError    response = session.get(        url,        headers={"X-Plex-Token": token, "Accept": "application/json"},        timeout=10,        allow_redirects=False,    )    if response.status_code not in (200, 201, 202, 204):        raise SettingsError(            f"Plex HTTP {response.status_code}: Server-URL, Token und Serverberechtigung prüfen."        )    return responsedef libraries(payload):    from .settings_store import SettingsError    if not isinstance(payload, dict):        raise SettingsError("Plex settings must be an object")    validated = {}    collect_settings(        {            name: payload.get(name, os.environ.get(KEYS[name], ""))            for name in ("url", "api_key")        },        validated,    )    url, token = validated[KEYS["url"]], validated[KEYS["api_key"]]    if not url or not token:        raise SettingsError("Plex-Server-URL und Token erforderlich")    try:        with niquests.Session() as session:            data = _request(session, url + "/library/sections", token).json()        rows = data["MediaContainer"].get("Directory", [])        if not isinstance(rows, list):            raise SettingsError("Plex liefert keine gültige Bibliotheksliste")        result = []        seen = set()        for row in rows:            if not isinstance(row, dict) or row.get("type") not in ("movie", "show"):                continue            ident = str(row.get("key", ""))            collect_settings({"movie_library_id": ident}, {})            if not ident or ident in seen:                continue            seen.add(ident)            result.append(                {                    "id": ident,                    "name": str(row.get("title") or ident),                    "type": "movies" if row["type"] == "movie" else "tvshows",                }            )        return result    except SettingsError:        raise    except niquests.exceptions.Timeout:        raise SettingsError(            "Plex antwortet nicht rechtzeitig. Erreichbarkeit vom Downloader prüfen."        ) from None    except niquests.exceptions.ConnectionError:        raise SettingsError(            "Plex-Verbindung fehlgeschlagen. Server-Adresse, Port und TLS-Zertifikat prüfen."        ) from None    except Exception:        raise SettingsError(            "Plex-Bibliotheken konnten nicht gelesen werden. Media-Server-URL statt app.plex.tv verwenden."        ) from Nonedef refresh(media_type):    kind = {"movie": "movie", "tv": "series", "series": "series"}.get(media_type)    if not kind:        return False    try:        validated = {}        collect_settings(            {name: os.environ.get(key, "") for name, key in KEYS.items()}, validated        )        url, token = validated[KEYS["url"]], validated[KEYS["api_key"]]        library = validated[KEYS[kind + "_library_id"]]        if not url or not token or not library:            return False        expected = "movies" if kind == "movie" else "tvshows"        rows = libraries({"url": url, "api_key": token})        if not any(row["id"] == library and row["type"] == expected for row in rows):            return False        with niquests.Session() as session:            _request(session, url + "/library/sections/" + library + "/refresh", token)        return True    except Exception:        logger.warning(            "Plex library scan failed; check integration settings and server availability"        )        return False
+"""Targeted, best-effort Plex library refresh after completed media files."""
+
+import os
+import re
+from urllib.parse import urlsplit
+
+import niquests
+
+from ..logger import get_logger
+
+logger = get_logger(__name__)
+
+KEYS = {
+    name: "H0MELAB_PLEX_" + name.upper()
+    for name in ("url", "api_key", "movie_library_id", "series_library_id", "music_library_id")
+}
+
+
+# Plex section type -> the shared library type (music sections are "artist")
+PLEX_TYPES = {"movie": "movies", "show": "tvshows", "artist": "music"}
+
+
+def settings():
+
+    result = {
+        name: os.environ.get(key, "").strip()
+        for name, key in KEYS.items()
+        if name != "api_key"
+    }
+
+    result["key_set"] = bool(os.environ.get(KEYS["api_key"], "").strip())
+
+    return result
+
+
+def collect_settings(payload, updates):
+
+    from .settings_store import SECRET_PLACEHOLDER, SettingsError
+
+    if not isinstance(payload, dict):
+        raise SettingsError("Plex settings must be an object")
+
+    for name, key in KEYS.items():
+        if name not in payload:
+            continue
+
+        value = payload[name]
+
+        if not isinstance(value, str):
+            raise SettingsError("Invalid Plex setting")
+
+        value = value.strip()
+
+        if name == "api_key" and value == SECRET_PLACEHOLDER:
+            continue
+
+        if any(ord(c) < 32 or ord(c) == 127 for c in value):
+            raise SettingsError("Invalid Plex setting")
+
+        if name == "url" and value:
+            try:
+                parts = urlsplit(value)
+
+                valid = (
+                    parts.scheme in ("http", "https")
+                    and parts.hostname
+                    and not (
+                        parts.username
+                        or parts.password
+                        or parts.query
+                        or parts.fragment
+                    )
+                )
+
+                _ = parts.port
+
+            except ValueError:
+                valid = False
+
+            if not valid:
+                raise SettingsError(
+                    "Plex URL must be HTTP(S), without credentials, query or fragment"
+                )
+
+            value = value.rstrip("/")
+
+        elif name.endswith("library_id") and value:
+            if not re.fullmatch(r"[0-9]+", value) or int(value) <= 0:
+                raise SettingsError("Plex library ID must be a positive section number")
+
+        elif name == "api_key" and (len(value) > 512 or not value.isascii()):
+            raise SettingsError("Invalid Plex API key")
+
+        updates[key] = value
+
+
+def _request(session, url, token):
+
+    from .settings_store import SettingsError
+
+    response = session.get(
+        url,
+        headers={"X-Plex-Token": token, "Accept": "application/json"},
+        timeout=10,
+        allow_redirects=False,
+    )
+
+    if response.status_code not in (200, 201, 202, 204):
+        raise SettingsError(
+            f"Plex HTTP {response.status_code}: Server-URL, Token und Serverberechtigung prüfen."
+        )
+
+    return response
+
+
+def libraries(payload):
+
+    from .settings_store import SettingsError
+
+    if not isinstance(payload, dict):
+        raise SettingsError("Plex settings must be an object")
+
+    validated = {}
+
+    collect_settings(
+        {
+            name: payload.get(name, os.environ.get(KEYS[name], ""))
+            for name in ("url", "api_key")
+        },
+        validated,
+    )
+
+    url, token = validated[KEYS["url"]], validated[KEYS["api_key"]]
+
+    if not url or not token:
+        raise SettingsError("Plex-Server-URL und Token erforderlich")
+
+    try:
+        with niquests.Session() as session:
+            data = _request(session, url + "/library/sections", token).json()
+
+        rows = data["MediaContainer"].get("Directory", [])
+
+        if not isinstance(rows, list):
+            raise SettingsError("Plex liefert keine gültige Bibliotheksliste")
+
+        result = []
+
+        seen = set()
+
+        for row in rows:
+            if not isinstance(row, dict) or row.get("type") not in PLEX_TYPES:
+                continue
+
+            ident = str(row.get("key", ""))
+
+            collect_settings({"movie_library_id": ident}, {})
+
+            if not ident or ident in seen:
+                continue
+
+            seen.add(ident)
+
+            result.append(
+                {
+                    "id": ident,
+                    "name": str(row.get("title") or ident),
+                    "type": PLEX_TYPES[row["type"]],
+                }
+            )
+
+        return result
+
+    except SettingsError:
+        raise
+
+    except niquests.exceptions.Timeout:
+        raise SettingsError(
+            "Plex antwortet nicht rechtzeitig. Erreichbarkeit vom Downloader prüfen."
+        ) from None
+
+    except niquests.exceptions.ConnectionError:
+        raise SettingsError(
+            "Plex-Verbindung fehlgeschlagen. Server-Adresse, Port und TLS-Zertifikat prüfen."
+        ) from None
+
+    except Exception:
+        raise SettingsError(
+            "Plex-Bibliotheken konnten nicht gelesen werden. Media-Server-URL statt app.plex.tv verwenden."
+        ) from None
+
+
+def refresh(media_type):
+
+    kind = {"movie": "movie", "tv": "series", "series": "series", "music": "music"}.get(media_type)
+
+    if not kind:
+        return False
+
+    try:
+        validated = {}
+
+        collect_settings(
+            {name: os.environ.get(key, "") for name, key in KEYS.items()}, validated
+        )
+
+        url, token = validated[KEYS["url"]], validated[KEYS["api_key"]]
+
+        library = validated[KEYS[kind + "_library_id"]]
+
+        if not url or not token or not library:
+            return False
+
+        expected = {"movie": "movies", "series": "tvshows", "music": "music"}[kind]
+
+        rows = libraries({"url": url, "api_key": token})
+
+        if not any(row["id"] == library and row["type"] == expected for row in rows):
+            return False
+
+        with niquests.Session() as session:
+            _request(session, url + "/library/sections/" + library + "/refresh", token)
+
+        return True
+
+    except Exception:
+        logger.warning(
+            "Plex library scan failed; check integration settings and server availability"
+        )
+
+        return False

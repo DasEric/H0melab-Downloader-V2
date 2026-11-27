@@ -47,6 +47,8 @@ _converting: set[str] = set()
 _failed: set[str] = set()
 # (username, remote folder) -> album folder, so one album never gets split up
 _albums: dict[tuple[str, str], Path] = {}
+# Albums with new files in the library whose scan waits for the last track
+_unscanned: set[tuple[str, str]] = set()
 _thread: threading.Thread | None = None
 _stop = threading.Event()
 
@@ -273,7 +275,10 @@ def organize(username, directory, tracks, images):
 
 
 def _finished_groups(downloads):
-    """(username, remote folder, [(remote path, local path)]) of finished files."""
+    """(username, remote folder, [(remote path, local path)], busy) per album.
+
+    busy: some file of that album is still queued or downloading.
+    """
     from . import soulseek
 
     for user in downloads or []:
@@ -284,8 +289,14 @@ def _finished_groups(downloads):
             if not isinstance(directory, dict):
                 continue
             files = []
+            busy = False
             for entry in directory.get("files") or []:
-                if not isinstance(entry, dict) or soulseek._transfer_state(entry.get("state")) != "completed":
+                if not isinstance(entry, dict):
+                    continue
+                state = soulseek._transfer_state(entry.get("state"))
+                if state in ("queued", "running"):
+                    busy = True
+                if state != "completed":
                     continue
                 remote = str(entry.get("filename") or "")
                 with soulseek._preview_lock:
@@ -295,8 +306,7 @@ def _finished_groups(downloads):
                 if local is None or not local.is_file():
                     continue
                 files.append((remote, local))
-            if files:
-                yield username, str(directory.get("directory") or ""), files
+            yield username, str(directory.get("directory") or ""), files, busy
 
 
 def _convert_one(path):
@@ -322,7 +332,7 @@ def convert_finished():
 
     Returns how many files were converted to MP3.
     """
-    from . import jellyfin, soulseek
+    from . import soulseek
 
     convert_on, organize_on = enabled(), organize_enabled()
     if not convert_on and not organize_on:
@@ -331,8 +341,10 @@ def convert_finished():
         downloads = soulseek._request("GET", "/transfers/downloads")
     except soulseek.SoulseekError:
         return 0
-    converted = moved = 0
-    for username, directory, files in list(_finished_groups(downloads)):
+    converted = 0
+    finished_albums = 0
+    for username, directory, files, busy in list(_finished_groups(downloads)):
+        key = (username, directory)
         tracks, images = [], []
         for remote, local in files:
             try:
@@ -356,12 +368,27 @@ def convert_finished():
             tracks.append((remote, local))
         if organize_on and (tracks or images):
             try:
-                moved += organize(username, directory, tracks, images)
+                if organize(username, directory, tracks, images):
+                    with _lock:
+                        _unscanned.add(key)
             except OSError as exc:
                 logger.warning("could not sort %s into the music library: %s", directory, exc)
-    if moved:
-        jellyfin.refresh("music")
+        with _lock:
+            if busy or key not in _unscanned:
+                continue
+            _unscanned.discard(key)
+        finished_albums += 1
+    if finished_albums:
+        scan_libraries()
     return converted
+
+
+def scan_libraries():
+    """Same as for movies and series: only the configured music library."""
+    from . import jellyfin, plex
+
+    jellyfin.refresh("music")
+    plex.refresh("music")
 
 
 def _loop():
