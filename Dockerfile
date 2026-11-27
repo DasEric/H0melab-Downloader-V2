@@ -56,9 +56,13 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 # Copy packaging metadata first to maximize caching
 COPY pyproject.toml README.md LICENSE MANIFEST.in /build/
 
-# Install dependencies (including optional dependencies like discord/sso)
+# Install only the dependencies (including the optional "all" extras) so this
+# layer stays cached until pyproject.toml changes. The package itself cannot be
+# installed yet: setuptools looks for packages in src/, which is copied below.
 RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install .[all]
+    python -c "import tomllib; p = tomllib.load(open('pyproject.toml', 'rb'))['project']; print('\n'.join(p['dependencies'] + p['optional-dependencies']['all']))" > /tmp/requirements.txt && \
+    pip install -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
 
 # Copy the application source code
 COPY src/ /build/src/
