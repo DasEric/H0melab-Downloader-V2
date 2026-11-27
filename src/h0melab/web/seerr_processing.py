@@ -190,7 +190,16 @@ def _manual_match(identity, mapping, rows):
     ]
 
 
-def _map_episodes(identity, canonical_seasons, rows, mappings):
+def _has_language(row, language):
+    """Rows without language data are not rejected; listed languages must match."""
+    languages = row.get("available_languages")
+    return not language or not isinstance(languages, list) or language in languages
+
+
+MISSING = ("source_missing", "language_missing")
+
+
+def _map_episodes(identity, canonical_seasons, rows, mappings, language=None):
     """Map one source's rows onto TMDB episodes; returns (entries, pending, used rows)."""
     from . import seerr_files
 
@@ -220,8 +229,17 @@ def _map_episodes(identity, canonical_seasons, rows, mappings):
             matches = (
                 _manual_match(identity, mapping[0], rows) if len(mapping) == 1 else []
             )
+            numbered = []
             if not matches:
                 free = [row for row in rows if row.get("url") not in taken]
+                numbered = [
+                    row
+                    for row in free
+                    if seerr_matching.episode_acceptable(identity, episode, row)
+                ]
+                # An episode only offered in another language (e.g. no German
+                # dub yet) is looked up on the next site instead of failing.
+                free = [row for row in free if _has_language(row, language)]
                 matches = [
                     row
                     for row in free
@@ -232,7 +250,8 @@ def _map_episodes(identity, canonical_seasons, rows, mappings):
                     if seerr_matching.episode_acceptable(identity, episode, row)
                 ]
             if not matches:
-                pending.append({**episode, "season_number": number, "reason": "source_missing"})
+                reason = "language_missing" if numbered else "source_missing"
+                pending.append({**episode, "season_number": number, "reason": reason})
                 continue
             row = matches[0]
             taken.add(row["url"])
@@ -297,7 +316,9 @@ def _series_plan(item, identity, request, seasons, canonical_seasons, ranked, ch
             # Provider errors can carry signed URLs; log only which site failed.
             logger.warning("Episode list unavailable on %s; trying next source", hit.get("source"))
             continue
-        entries, pending, used = _map_episodes(identity, canonical_seasons, rows, mappings)
+        entries, pending, used = _map_episodes(
+            identity, canonical_seasons, rows, mappings, item.get("language")
+        )
         first = first or (hit, rows, pending)
         if primary is None:
             if any(not entry.get("_receipt_only") for entry in entries):
@@ -313,7 +334,7 @@ def _series_plan(item, identity, request, seasons, canonical_seasons, ranked, ch
             still_missing = []
             for episode in primary_pending:
                 key = (episode["season_number"], episode["episode_number"])
-                if episode["reason"] == "source_missing" and key in found:
+                if episode["reason"] in MISSING and key in found:
                     entry, row = found[key]
                     primary_entries.append({**entry, "source_url": hit["url"]})
                     primary_used.append(row)
@@ -321,7 +342,7 @@ def _series_plan(item, identity, request, seasons, canonical_seasons, ranked, ch
                     still_missing.append(episode)
             primary_pending[:] = still_missing
         if primary is not None and not any(
-            episode["reason"] == "source_missing" for episode in primary[2]
+            episode["reason"] in MISSING for episode in primary[2]
         ):
             break
     if primary is None:

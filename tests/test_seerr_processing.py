@@ -2010,3 +2010,49 @@ def test_jellyfin_refresh_only_after_new_completed_file(setup_media, monkeypatch
     assert seerr.get_request(queue_id=qid)["status"] == "completed"
     worker._process(db.get_queue_item(qid))
     assert calls == [kind]
+
+
+def test_episode_without_requested_language_waits_instead_of_failing(
+    setup_media, monkeypatch
+):
+    """E.g. a new episode only available as English Dub on SerienStream yet."""
+    qid = request(monkeypatch, "tv", [1])
+    monkeypatch.setattr(
+        seerr_processing,
+        "episode_rows",
+        lambda *a: [
+            {
+                "url": "https://example.test/ep1",
+                "season_number": 1,
+                "episode_number": 1,
+                "episode_title": "First",
+                "available_languages": ["German Dub", "English Dub"],
+            },
+            {
+                "url": "https://example.test/ep2",
+                "season_number": 1,
+                "episode_number": 2,
+                "episode_title": "Second",
+                "available_languages": ["English Dub"],
+            },
+        ],
+    )
+    monkeypatch.setattr(
+        seerr_processing.tmdb,
+        "season_details",
+        lambda *a: {
+            "episodes": [
+                {"series_tmdb_id": 42, "season_number": 1, "episode_number": n, "name": t}
+                for n, t in ((1, "First"), (2, "Second"))
+            ]
+        },
+    )
+    item = db.get_queue_item(qid)
+    assert item["language"] == "German Dub"
+    assert seerr_processing.prepare(item)
+    entries = json.loads(db.get_queue_item(qid)["episodes"])
+    assert [e["url"] for e in entries] == ["https://example.test/ep1"]
+    pending = seerr.get_request(request_id=1)["episode_review"]["pending"]
+    assert [(p["episode_number"], p["reason"]) for p in pending] == [
+        (2, "language_missing")
+    ]

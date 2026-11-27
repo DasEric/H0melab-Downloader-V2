@@ -42,6 +42,11 @@ def alternatives(item, entry):
             except Exception:
                 rows = []
             wanted = {**canonical[0], "series_tmdb_id": identity["tmdb_id"]}
+            rows = [
+                row
+                for row in rows
+                if seerr_processing._has_language(row, item.get("language"))
+            ]
             matches = [
                 row
                 for row in rows

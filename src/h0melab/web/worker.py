@@ -360,8 +360,21 @@ def _process(item):
             else:
                 if item.get("source") == "seerr":
                     # Provider exceptions can contain signed stream URLs or credentials.
-                    logger.error("Seerr download failed for queue item %s", queue_id)
-                    failure = {"error": "Download or source verification failed; review the request and retry"}
+                    label = (
+                        f"S{int(entry.get('season') or 0):02d}E{int(entry.get('episode') or 0):02d}"
+                        if isinstance(entry, dict)
+                        else "entry"
+                    )
+                    root = exc.__cause__ or exc
+                    logger.error(
+                        "Seerr download failed for queue item %s, %s (%s)",
+                        queue_id,
+                        label,
+                        type(root).__name__,
+                    )
+                    failure = {
+                        "error": f"{label}: Download or source verification failed on every source; retry later"
+                    }
                 else:
                     logger.error("Download failed for %s: %s", url, exc)
                     failure = {"url": url, "error": str(exc)}
