@@ -4,7 +4,10 @@ import json
 import time
 from datetime import UTC, date, datetime
 
+from ..logger import get_logger
 from . import db, media_targets, seerr, seerr_matching, settings_store, sitesearch, tmdb
+
+logger = get_logger(__name__)
 
 
 class ReviewRequired(ValueError):
@@ -156,6 +159,181 @@ def episode_rows(hit, seasons):
     return rows
 
 
+def _aired(episode):
+    air_date = episode.get("air_date")
+    try:
+        return not (
+            bool(air_date) and date.fromisoformat(air_date) > datetime.now(UTC).date()
+        )
+    except (ValueError, TypeError):
+        return True
+
+
+def _manual_match(identity, mapping, rows):
+    """A reviewed mapping never overrides numbering checks or a foreign series ID."""
+    return [
+        row
+        for row in rows
+        if row.get("url") == mapping.get("url")
+        and type(row.get("season_number")) is int
+        and row["season_number"] >= 0
+        and type(row.get("episode_number")) is int
+        and row["episode_number"] > 0
+        and (
+            "source_season_number" not in mapping
+            or row["season_number"] == mapping["source_season_number"]
+        )
+        and all(
+            row.get(k) in (None, identity.get(v))
+            for k, v in (("series_tmdb_id", "tmdb_id"), ("series_imdb_id", "imdb_id"))
+        )
+    ]
+
+
+def _map_episodes(identity, canonical_seasons, rows, mappings):
+    """Map one source's rows onto TMDB episodes; returns (entries, pending, used rows)."""
+    from . import seerr_files
+
+    entries, pending, used = [], [], []
+    taken = set()
+    for number, canonical in canonical_seasons.items():
+        for episode in canonical:
+            receipt = {
+                "_seerr_identity": identity,
+                "season": number,
+                "episode": episode["episode_number"],
+                "url": "",
+                "_receipt_only": True,
+            }
+            if seerr_files.existing(receipt):
+                entries.append(receipt)
+                continue
+            if not _aired(episode):
+                pending.append({**episode, "season_number": number, "reason": "not_yet_aired"})
+                continue
+            mapping = [
+                m
+                for m in mappings
+                if m.get("season_number") == number
+                and m.get("episode_number") == episode["episode_number"]
+            ]
+            matches = (
+                _manual_match(identity, mapping[0], rows) if len(mapping) == 1 else []
+            )
+            if not matches:
+                free = [row for row in rows if row.get("url") not in taken]
+                matches = [
+                    row
+                    for row in free
+                    if seerr_matching.assess_episode(identity, episode, row)["eligible"]
+                ] or [
+                    row
+                    for row in free
+                    if seerr_matching.episode_acceptable(identity, episode, row)
+                ]
+            if not matches:
+                pending.append({**episode, "season_number": number, "reason": "source_missing"})
+                continue
+            row = matches[0]
+            taken.add(row["url"])
+            used.append(row)
+            entries.append(
+                {
+                    "url": row["url"],
+                    "season": number,
+                    "episode": episode["episode_number"],
+                    "source_season": row["season_number"],
+                    "source_episode": row["episode_number"],
+                }
+            )
+    return entries, pending, used
+
+
+SOURCE_FIELDS = (
+    "url",
+    "season_number",
+    "episode_number",
+    "title_de",
+    "title_en",
+    "episode_title",
+    "series_tmdb_id",
+    "series_imdb_id",
+)
+
+
+def _episode_review(hit, rows, canonical_seasons, pending):
+    """Persist the exact source snapshot and canonical episodes for inspection."""
+    return {
+        "provider_url": hit["url"],
+        "source": [{k: row[k] for k in SOURCE_FIELDS if k in row} for row in rows],
+        "canonical": [
+            {
+                k: episode[k]
+                for k in ("season_number", "episode_number", "name", "air_date")
+                if k in episode
+            }
+            for season in canonical_seasons.values()
+            for episode in season
+        ],
+        "pending": pending,
+    }
+
+
+def _series_plan(item, identity, request, seasons, canonical_seasons, ranked, chosen):
+    """Take the first usable source in priority order; fill gaps from the next ones."""
+    primary = first = None
+    for hit in ranked:
+        if stopped(item):
+            return None
+        manual = chosen is not None and hit["url"] == chosen["url"]
+        mappings = (request.get("episode_mapping") or []) if manual else []
+        source_seasons = sorted(
+            set(seasons)
+            | {m["source_season_number"] for m in mappings if "source_season_number" in m}
+        )
+        try:
+            rows = episode_rows(hit, source_seasons)
+        except Exception:
+            # Provider errors can carry signed URLs; log only which site failed.
+            logger.warning("Episode list unavailable on %s; trying next source", hit.get("source"))
+            continue
+        entries, pending, used = _map_episodes(identity, canonical_seasons, rows, mappings)
+        first = first or (hit, rows, pending)
+        if primary is None:
+            if any(not entry.get("_receipt_only") for entry in entries):
+                primary = (hit, entries, pending, list(rows))
+        else:
+            _hit, primary_entries, primary_pending, primary_used = primary
+            found = {
+                (entry["season"], entry["episode"]): (entry, row)
+                for entry, row in zip(
+                    [e for e in entries if not e.get("_receipt_only")], used
+                )
+            }
+            still_missing = []
+            for episode in primary_pending:
+                key = (episode["season_number"], episode["episode_number"])
+                if episode["reason"] == "source_missing" and key in found:
+                    entry, row = found[key]
+                    primary_entries.append({**entry, "source_url": hit["url"]})
+                    primary_used.append(row)
+                else:
+                    still_missing.append(episode)
+            primary_pending[:] = still_missing
+        if primary is not None and not any(
+            episode["reason"] == "source_missing" for episode in primary[2]
+        ):
+            break
+    if primary is None:
+        if first is not None:
+            seerr.update(
+                request["request_id"],
+                episode_review=_episode_review(first[0], first[1], canonical_seasons, first[2]),
+            )
+        raise ReviewRequired("No enabled site offers the requested episodes")
+    return primary
+
+
 def prepare(item):
     if stopped(item):
         return False
@@ -253,215 +431,71 @@ def prepare(item):
         hits = candidates(identity)
         if stopped(item):
             return False
-        if request.get("selected_url") and request.get("review_reason"):
-            # Compare against the administrator's stored evidence before replacing
-            # candidates with the latest search snapshot.
+        selected_url = request.get("selected_url") or ""
+        if selected_url and request.get("review_reason"):
+            # Compare against the stored evidence before replacing candidates
+            # with the latest search snapshot.
             try:
                 seerr_matching.revalidate_selection(identity, request)
             except seerr_matching.IdentityReviewRequired:
-                if stopped(item):
-                    return False
-                # A changed page revokes the old approval. Publish fresh evidence
-                # for a new explicit review, but never download in this attempt.
+                # A changed page no longer binds the old choice; choose again
+                # automatically instead of waiting for a manual approval.
+                selected_url = ""
                 seerr.update(
                     request["request_id"],
-                    candidates=hits,
                     selected_url="",
                     review_reason="",
                     episode_mapping=[],
-                    episode_review={},
                 )
-                return review(
-                    item,
-                    "Reviewed provider evidence changed; inspect the refreshed candidates and approve again",
-                )
+                request = seerr.get_request(request_id=request["request_id"])
             if stopped(item):
                 return False
         seerr.update(request["request_id"], candidates=hits)
-        if request.get("selected_url"):
-            hit = next((h for h in hits if h["url"] == request["selected_url"]), None)
-            if not hit:
-                raise ReviewRequired("Selected provider is no longer available")
-            assessment = seerr_matching.assess_candidate(identity, hit)
-            observed_kind = hit.get("media_type")
-            if observed_kind == "series":
-                observed_kind = "tv"
-            if (
-                assessment["conflict"]
-                or hit.get("metadata_error")
-                or observed_kind != identity["media_type"]
-            ):
-                raise ReviewRequired(
-                    "Selected provider identity conflicts or is unverified"
-                )
-            if not request.get("review_reason") and not assessment["eligible"]:
-                raise ReviewRequired(
-                    "Previously automatic selection no longer has sufficient identity evidence"
-                )
-        else:
-            hit = seerr_matching.choose_candidate(identity, hits)
-        if not hit:
-            raise ReviewRequired("Provider results require manual selection")
-        entries = []
+        ranked = seerr_matching.rank_candidates(identity, hits)
+        # Only an administrator's choice is preferred; an earlier automatic
+        # pick is simply ranked again with the fresh results.
+        chosen = (
+            next((h for h in hits if h["url"] == selected_url), None)
+            if request.get("review_reason")
+            and request.get("review_reason") != seerr_matching.AUTO_REASON
+            else None
+        )
+        if chosen is not None and (
+            chosen.get("metadata_error")
+            or seerr_matching.hard_conflict(identity, chosen)
+        ):
+            chosen = None
+        if chosen is not None:
+            ranked = [chosen] + [h for h in ranked if h["url"] != chosen["url"]]
+        if not ranked:
+            raise ReviewRequired("No matching source found on any enabled site")
         pending = []
         if identity["media_type"] == "movie":
+            hit = ranked[0]
             entries = [{"url": hit["url"], "season": 0, "episode": 0}]
         else:
-            seasons = payload["seasons"]
-            source_seasons = sorted(
-                set(seasons)
-                | {
-                    mapping["source_season_number"]
-                    for mapping in (request.get("episode_mapping") or [])
-                    if "source_season_number" in mapping
-                }
+            plan = _series_plan(
+                item, identity, request, payload["seasons"], canonical_seasons, ranked, chosen
             )
-            rows = episode_rows(hit, source_seasons)
-            # Persist the exact source snapshot and canonical choices even when
-            # matching pauses, so the administrator can make an informed mapping.
-            source_fields = (
-                "url",
-                "season_number",
-                "episode_number",
-                "title_de",
-                "title_en",
-                "episode_title",
-                "series_tmdb_id",
-                "series_imdb_id",
-            )
+            if plan is None:
+                return False
+            hit, entries, pending, source_rows = plan
             seerr.update(
                 request["request_id"],
-                episode_review={
-                    "provider_url": hit["url"],
-                    "source": [
-                        {k: row[k] for k in source_fields if k in row} for row in rows
-                    ],
-                    "canonical": [
-                        {
-                            k: episode[k]
-                            for k in (
-                                "season_number",
-                                "episode_number",
-                                "name",
-                                "air_date",
-                            )
-                            if k in episode
-                        }
-                        for season in canonical_seasons.values()
-                        for episode in season
-                    ],
-                },
+                episode_review=_episode_review(hit, source_rows, canonical_seasons, pending),
             )
-            for number in seasons:
-                canonical = canonical_seasons[number]
-                if not canonical:
-                    raise ReviewRequired("Requested season has no verified episodes")
-                for episode in canonical:
-                    from . import seerr_files
-
-                    receipt_entry = {
-                        "_seerr_identity": identity,
-                        "season": number,
-                        "episode": episode["episode_number"],
-                        "url": "",
-                        "_receipt_only": True,
-                    }
-                    if seerr_files.existing(receipt_entry):
-                        entries.append(receipt_entry)
-                        continue
-                    air_date = episode.get("air_date")
-                    try:
-                        future = (
-                            bool(air_date)
-                            and date.fromisoformat(air_date) > datetime.now(UTC).date()
-                        )
-                    except (ValueError, TypeError):
-                        future = False
-                    if future:
-                        pending.append({**episode, "reason": "not_yet_aired"})
-                        continue
-                    matches = [
-                        row
-                        for row in rows
-                        if seerr_matching.assess_episode(identity, episode, row)[
-                            "eligible"
-                        ]
-                    ]
-                    if len(matches) != 1 or any(
-                        m.get("season_number") == number
-                        and m.get("episode_number") == episode["episode_number"]
-                        for m in (request.get("episode_mapping") or [])
-                    ):
-                        matches = []
-                        mapping = [
-                            m
-                            for m in (request.get("episode_mapping") or [])
-                            if m.get("season_number") == number
-                            and m.get("episode_number") == episode["episode_number"]
-                        ]
-                        if len(mapping) == 1:
-                            verified = [
-                                row
-                                for row in rows
-                                if row.get("url") == mapping[0].get("url")
-                                and type(row.get("season_number")) is int
-                                and row["season_number"] >= 0
-                                and type(row.get("episode_number")) is int
-                                and row["episode_number"] > 0
-                                and (
-                                    "source_season_number" not in mapping[0]
-                                    or row["season_number"]
-                                    == mapping[0]["source_season_number"]
-                                )
-                            ]
-                            # A manual title decision never overrides a foreign series ID.
-                            verified = [
-                                row
-                                for row in verified
-                                if all(
-                                    row.get(k) in (None, identity.get(v))
-                                    for k, v in (
-                                        ("series_tmdb_id", "tmdb_id"),
-                                        ("series_imdb_id", "imdb_id"),
-                                    )
-                                )
-                            ]
-                            if len(verified) == 1:
-                                matches = verified
-                    if (
-                        not matches
-                        and not any(
-                            row.get("season_number") == number
-                            and row.get("episode_number") == episode["episode_number"]
-                            for row in rows
-                        )
-                        and not any(
-                            m.get("season_number") == number
-                            and m.get("episode_number") == episode["episode_number"]
-                            for m in (request.get("episode_mapping") or [])
-                        )
-                    ):
-                        pending.append({**episode, "reason": "source_missing"})
-                        continue
-                    if len(matches) != 1:
-                        raise ReviewRequired(
-                            f"Episode S{number:02d}E{episode['episode_number']:02d} requires manual mapping"
-                        )
-                    entries.append(
-                        {
-                            "url": matches[0]["url"],
-                            "season": number,
-                            "episode": episode["episode_number"],
-                            "source_season": matches[0]["season_number"],
-                            "source_episode": matches[0]["episode_number"],
-                        }
-                    )
-        if identity["media_type"] == "tv":
-            snapshot = seerr.get_request(request_id=request["request_id"])[
-                "episode_review"
-            ]
-            snapshot["pending"] = pending
-            seerr.update(request["request_id"], episode_review=snapshot)
+        manual = chosen is not None and hit["url"] == chosen["url"]
+        if manual:
+            review_reason = request.get("review_reason") or ""
+        elif seerr_matching.assess_candidate(identity, hit)["eligible"]:
+            review_reason = ""
+        else:
+            review_reason = seerr_matching.AUTO_REASON
+        seerr.update(
+            request["request_id"],
+            review_reason=review_reason,
+            **({} if manual else {"episode_mapping": []}),
+        )
         if stopped(item):
             return False
         source_entries = [entry for entry in entries if not entry.get("_receipt_only")]

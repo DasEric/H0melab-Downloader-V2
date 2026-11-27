@@ -183,6 +183,78 @@ def choose_candidate(identity, hits):
     return next(iter(unique.values()), None)
 
 
+AUTO_REASON = "automatic: best available source"
+
+
+def hard_conflict(identity, hit):
+    """A different media type or a foreign external ID; never auto-accepted."""
+    kind = _kind(hit.get("media_type"))
+    if kind in ("movie", "tv") and kind != identity.get("media_type"):
+        return True
+    for field in ("tmdb_id", "imdb_id"):
+        actual, expected = hit.get(field), identity.get(field)
+        if actual not in (None, "") and expected not in (None, "") and actual != expected:
+            return True
+    return False
+
+
+def auto_acceptable(identity, hit):
+    """Strictly verified, or the same title without a hard conflict."""
+    if not isinstance(hit.get("url"), str) or not hit["url"]:
+        return False
+    if assess_candidate(identity, hit)["eligible"]:
+        return True
+    if (
+        hit.get("metadata_error")
+        or hard_conflict(identity, hit)
+        or _kind(hit.get("media_type")) != identity.get("media_type")
+    ):
+        return False
+    id_match = any(
+        hit.get(f) not in (None, "") and hit.get(f) == identity.get(f)
+        for f in ("tmdb_id", "imdb_id")
+    )
+    return id_match or bool(_aliases(identity) & _aliases(hit))
+
+
+def rank_candidates(identity, hits):
+    """Usable sources in site priority (SerienStream first for series)."""
+    from .sitesearch import sites_for
+
+    order = list(sites_for(identity.get("media_type")))
+    unique = {}
+    for position, hit in enumerate(hits):
+        if hit.get("url") not in unique and auto_acceptable(identity, hit):
+            unique[hit["url"]] = (position, hit)
+
+    def key(pair):
+        position, hit = pair
+        assessment = assess_candidate(identity, hit)
+        source = hit.get("source")
+        site = order.index(source) if source in order else len(order)
+        return (site, not assessment["eligible"], -assessment["score"], position)
+
+    return [hit for _position, hit in sorted(unique.values(), key=key)]
+
+
+def episode_acceptable(identity, tmdb_episode, provider_row):
+    """Same season/episode number and no foreign series ID; titles may differ."""
+    if assess_episode(identity, tmdb_episode, provider_row)["eligible"]:
+        return True
+    for field, expected in (
+        ("series_tmdb_id", identity["tmdb_id"]),
+        ("series_imdb_id", identity.get("imdb_id")),
+    ):
+        actual = provider_row.get(field)
+        if actual is not None and actual != expected:
+            return False
+    for field, minimum in (("season_number", 0), ("episode_number", 1)):
+        actual, expected = provider_row.get(field), tmdb_episode.get(field)
+        if type(actual) is not int or actual < minimum or actual != expected:
+            return False
+    return bool(provider_row.get("url"))
+
+
 def assess_episode(identity, tmdb_episode, provider_row):
 
     reasons, conflict = [], False
@@ -399,9 +471,15 @@ def revalidate_selection(identity, request):
         )
     fresh = enrich_candidate({"url": url})
     assessment = assess_candidate(identity, fresh)
+    # An automatic or reviewed pick accepted soft conflicts (e.g. year) already.
+    conflict = (
+        hard_conflict(identity, fresh)
+        if request.get("review_reason")
+        else assessment["conflict"]
+    )
     if (
         fresh.get("metadata_error")
-        or assessment["conflict"]
+        or conflict
         or _kind(fresh.get("media_type")) != identity["media_type"]
     ):
         raise IdentityReviewRequired(
@@ -460,7 +538,10 @@ def revalidate_episode_source(identity, request, entry):
             "Episode evidence is missing or ambiguous before download"
         )
     source_season = entry.get("source_season", entry["season"])
-    rows = episode_rows({"url": request["selected_url"]}, [source_season])
+    # Gap-filled episodes come from another site's series page.
+    rows = episode_rows(
+        {"url": entry.get("source_url") or request["selected_url"]}, [source_season]
+    )
     fresh = [row for row in rows if row.get("url") == entry["url"]]
     if len(fresh) != 1:
         raise IdentityReviewRequired("Provider episode disappeared or became ambiguous")
@@ -498,5 +579,5 @@ def revalidate_episode_source(identity, request, entry):
             )
     else:
         episode = {**canonical[0], "series_tmdb_id": identity["tmdb_id"]}
-        if not assess_episode(identity, episode, row)["eligible"]:
+        if not episode_acceptable(identity, episode, row):
             raise IdentityReviewRequired("Fresh episode mapping requires manual review")

@@ -416,9 +416,12 @@ def test_automatic_selection_does_not_become_manual_approval_on_retry(
         "assessment": {"conflict": False},
     }
     monkeypatch.setattr(seerr_processing, "candidates", lambda _: [weaker])
-    assert not seerr.prepare(db.get_queue_item(qid))
-    assert "sufficient identity evidence" in seerr.get_request(request_id=1)["error"]
-    assert not list(setup_media[0].rglob("*.mp4"))
+    # A title-only match is taken automatically, but never recorded as an
+    # administrator approval.
+    assert seerr.prepare(db.get_queue_item(qid))
+    current = seerr.get_request(request_id=1)
+    assert current["review_reason"] == seerr_processing.seerr_matching.AUTO_REASON
+    assert current["episode_mapping"] == []
 
 
 def test_manual_selection_still_requires_confirmed_media_type(setup_media, monkeypatch):
@@ -888,14 +891,14 @@ def test_partial_season_does_not_bypass_conflicting_episode_review(
             ]
         },
     )
-    monkeypatch.setattr(
-        worker,
-        "_build_episode",
-        lambda *a: pytest.fail("Conflict must pause before downloads"),
-    )
-    worker._process(db.get_queue_item(qid))
-    assert seerr.get_request(request_id=1)["status"] == "manual_review"
-    assert not list(setup_media[1].rglob("*.mp4"))
+    assert seerr_processing.prepare(db.get_queue_item(qid))
+    entries = json.loads(db.get_queue_item(qid)["episodes"])
+    # The episode with a foreign series ID is never queued; the clean one is.
+    assert [e["url"] for e in entries] == ["https://example.test/ep1"]
+    pending = seerr.get_request(request_id=1)["episode_review"]["pending"]
+    assert [(p["episode_number"], p["reason"]) for p in pending] == [
+        (2, "source_missing")
+    ]
 
 
 def test_all_existing_series_needs_no_provider(setup_media, monkeypatch):
@@ -1197,7 +1200,7 @@ def test_webhook_descriptive_metadata_never_replaces_verified_identity(
     assert (setup_media[0] / "Example (2020).mp4").is_file()
 
 
-@pytest.mark.parametrize("change", ["title", "series", "missing"])
+@pytest.mark.parametrize("change", ["series", "missing"])
 def test_source_episode_changed_after_prepare_never_downloads(
     setup_media, monkeypatch, change
 ):
@@ -1840,14 +1843,13 @@ def test_prepare_checks_manual_evidence_before_replacing_candidates(
     monkeypatch.setattr(
         seerr_processing.seerr_matching, "revalidate_selection", revalidate
     )
-    assert not seerr_processing.prepare(db.get_queue_item(qid))
+    # A changed reviewed page drops the old approval and picks automatically.
+    assert seerr_processing.prepare(db.get_queue_item(qid))
     assert inspected == [[old]]
     current = seerr.get_request(request_id=1)
     assert current["candidates"] != [old]
-    assert current["selected_url"] == ""
-    assert current["review_reason"] == ""
-    assert current["status"] == "manual_review"
-    assert db.get_queue_item(qid)["pause_requested"] == 1
+    assert current["selected_url"] != old["url"] or current["review_reason"] == ""
+    assert current["status"] == "downloading"
 
 
 def test_manual_selection_changed_title_is_stopped_by_real_revalidation(

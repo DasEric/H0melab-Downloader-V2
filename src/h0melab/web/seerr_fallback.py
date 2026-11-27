@@ -7,21 +7,23 @@ def alternatives(item, entry):
     """Resolve alternative episodes independently; never reuse another site's numbering."""
     request = seerr.get_request(queue_id=item["id"])
     identity = entry["_seerr_identity"]
-    seen = {entry["url"], request.get("selected_url")}
-    for hit in request.get("candidates", []):
-        url = hit.get("url")
-        if not url or url in seen:
+    seen = {entry["url"], entry.get("source_url") or request.get("selected_url")}
+    # Next best sources in priority order (SerienStream first for series).
+    for hit in seerr_matching.rank_candidates(identity, request.get("candidates", [])):
+        url = hit["url"]
+        if url in seen:
             continue
         seen.add(url)
-        if not seerr_matching.assess_candidate(identity, hit)["eligible"]:
-            continue
         if seerr_processing.stopped(item):
             return
         alternative = dict(entry)
+        alternative.pop("source_url", None)
         evidence = {
             **request,
             "selected_url": url,
-            "review_reason": "",
+            "review_reason": ""
+            if seerr_matching.assess_candidate(identity, hit)["eligible"]
+            else seerr_matching.AUTO_REASON,
             "episode_mapping": [],
         }
         if identity["media_type"] == "movie":
@@ -39,16 +41,17 @@ def alternatives(item, entry):
                 rows = seerr_processing.episode_rows(hit, [entry["season"]])
             except Exception:
                 rows = []
+            wanted = {**canonical[0], "series_tmdb_id": identity["tmdb_id"]}
             matches = [
                 row
                 for row in rows
-                if seerr_matching.assess_episode(
-                    identity,
-                    {**canonical[0], "series_tmdb_id": identity["tmdb_id"]},
-                    row,
-                )["eligible"]
+                if seerr_matching.assess_episode(identity, wanted, row)["eligible"]
+            ] or [
+                row
+                for row in rows
+                if seerr_matching.episode_acceptable(identity, wanted, row)
             ]
-            if len(matches) != 1 or not matches[0].get("url"):
+            if not matches or not matches[0].get("url"):
                 continue
             row = matches[0]
             alternative.update(

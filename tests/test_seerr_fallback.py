@@ -127,7 +127,7 @@ def test_episode_fallback_matches_only_requested_episode(
         lambda *args: [row, row] if duplicate else [row],
     )
     result = list(fallback.alternatives(item, entry))
-    if wrong or duplicate:
+    if wrong:
         assert result == []
     else:
         candidate, evidence = result[0]
