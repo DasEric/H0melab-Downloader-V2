@@ -2042,7 +2042,12 @@ def test_episode_without_requested_language_waits_instead_of_failing(
         "season_details",
         lambda *a: {
             "episodes": [
-                {"series_tmdb_id": 42, "season_number": 1, "episode_number": n, "name": t}
+                {
+                    "series_tmdb_id": 42,
+                    "season_number": 1,
+                    "episode_number": n,
+                    "name": t,
+                }
                 for n, t in ((1, "First"), (2, "Second"))
             ]
         },
