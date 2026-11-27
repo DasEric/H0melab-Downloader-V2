@@ -82,6 +82,6 @@
 {# Keep this revision in step with queue progress markup.  The app version can
    stay unchanged between deployments, so it is not enough to evict an older
    queue.js that only renders the combined bar. #}
-<script src="{{ url_for('static', filename='queue.js') }}?v={{ app_version }}-fast-transfer-compact-progress-serienstream-soft-subs-pause"></script>
+<script src="{{ url_for('static', filename='queue.js') }}?v={{ app_version }}-fast-transfer-compact-progress-serienstream-soft-subs-pause-post-processing"></script>
 <script src="{{ url_for('static', filename='soulseek-queue.js') }}?v={{ app_version }}-soulseek-v4"></script>
 {% endblock %}

@@ -365,3 +365,64 @@ def test_versions_compare_numerically_not_alphabetically(lower, higher):
     from packaging.version import parse as parse_version
 
     assert parse_version(lower) < parse_version(higher)
+
+
+def _progress_snapshot():
+    from h0melab.models.common import common
+
+    return common.get_ffmpeg_progress()
+
+
+def test_post_processing_keeps_the_finished_download_on_the_bar():
+    """Remuxing after the download must not send the episode bar back to 0%."""
+    from h0melab.models.common import common
+
+    common.set_episode_download_context(7, 1, 1)
+    try:
+        # the download's own FFmpeg run ended and reset the shared progress
+        common._clear_download_progress()
+        with common._post_processing("converting"):
+            snapshot = _progress_snapshot()
+            assert snapshot["phase"] == "converting"
+            assert snapshot["active"] is True
+            assert snapshot["percent"] == 99.0
+
+            # a remux job starting from zero and ending must not lower it
+            with common._ffmpeg_progress_lock:
+                common._update_progress(percent=0.0, active=True)
+                common._update_progress(percent=0.0, active=False)
+            common._clear_download_progress()
+            snapshot = _progress_snapshot()
+            assert snapshot["percent"] == 99.0
+            assert snapshot["active"] is True
+
+            with common._post_processing("subtitles"):
+                assert _progress_snapshot()["phase"] == "subtitles"
+            assert _progress_snapshot()["phase"] == "converting"
+
+        snapshot = _progress_snapshot()
+        assert snapshot["phase"] == "done"
+        assert snapshot["percent"] == 99.0
+        common._clear_download_progress()
+        assert _progress_snapshot()["active"] is True
+    finally:
+        common.clear_episode_download_context()
+    assert _progress_snapshot()["phase"] == ""
+
+
+def test_failed_post_processing_clears_the_progress_for_a_retry():
+    from h0melab.models.common import common
+
+    common.set_episode_download_context(7, 1, 1)
+    try:
+        with common._ffmpeg_progress_lock:
+            common._ffmpeg_progress.update(percent=95.0, active=True)
+        with pytest.raises(RuntimeError), common._post_processing("converting"):
+            assert _progress_snapshot()["percent"] == 95.0
+            raise RuntimeError("ffmpeg failed")
+        snapshot = _progress_snapshot()
+        assert snapshot["phase"] == ""
+        assert snapshot["percent"] == 0.0
+        assert snapshot["active"] is False
+    finally:
+        common.clear_episode_download_context()

@@ -203,6 +203,8 @@
       "queue.title": "Download-Warteschlange",
       "queue.overall_progress": "Gesamtfortschritt",
       "queue.current_episode_progress": "Aktuelle Folge",
+      "queue.phase.converting": "Wird konvertiert…",
+      "queue.phase.subtitles": "Untertitel werden eingefügt…",
       "queue.german_subtitles": "Deutsche Untertitel",
       "queue.empty": "Die Warteschlange ist leer.",
       "queue.no_matches": "Zu diesem Filter passt nichts.",

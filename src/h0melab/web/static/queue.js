@@ -80,6 +80,20 @@
     return Math.max(0, Math.min(100, Math.round(progress.percent || 0)));
   }
 
+  /* After the download the file is still remuxed or gets its subtitles. The
+     bar stays put meanwhile, so say what is going on instead of a timestamp. */
+  const PHASES = {
+    converting: ["queue.phase.converting", "Converting…"],
+    subtitles: ["queue.phase.subtitles", "Adding subtitles…"]
+  };
+
+  function episodeNote(item, progress) {
+    if (item.status !== "running" || !progress.active) return "";
+    if (Number(progress.queue_id) !== Number(item.id)) return "";
+    const phase = PHASES[progress.phase];
+    return phase ? t(phase[0], phase[1]) : progress.time || "";
+  }
+
   /* "bandwidth" is only populated when response bytes are measured directly.
      FFmpeg's output-file growth is deliberately not labelled as network speed. */
   function speedLabel(item, ffmpeg) {
@@ -271,7 +285,7 @@
         <div class="episode-progress"${item.status === "running" ? "" : " hidden"}>
           <div class="progress-caption progress-caption-row">
             <span>${t("queue.current_episode_progress", "Current episode")}</span>
-            <span class="progress-inline-stats"><span data-episode-percent>${episode}%</span><span data-episode-time>${esc(ffmpeg.time || "")}</span></span>
+            <span class="progress-inline-stats"><span data-episode-percent>${episode}%</span><span data-episode-time>${esc(episodeNote(item, ffmpeg))}</span></span>
           </div>
           <div class="progress-track progress-track-episode"><div class="progress-fill progress-fill-episode" data-progress="episode" data-percent="${episode}" style="width:${episode}%"></div></div>
         </div>
@@ -322,7 +336,7 @@
     const episodeNode = node.querySelector("[data-episode-percent]");
     if (episodeNode) episodeNode.textContent = `${episodePercent(item, ffmpeg)}%`;
     const episodeTime = node.querySelector("[data-episode-time]");
-    if (episodeTime) episodeTime.textContent = ffmpeg.time || "";
+    if (episodeTime) episodeTime.textContent = episodeNote(item, ffmpeg);
   }
 
   function paint(node, item, ffmpeg) {

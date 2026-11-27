@@ -10,6 +10,7 @@ import subprocess
 import sys
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 import ffmpeg
@@ -474,6 +475,9 @@ _ffmpeg_progress = {
     "active": False,
     "queue_id": None,
     "episode_index": None,
+    # "" while downloading, a post-processing stage ("converting",
+    # "subtitles") afterwards, and "done" once the file is in place.
+    "phase": "",
 }
 _episode_context = threading.local()
 
@@ -492,6 +496,7 @@ def set_episode_download_context(queue_id, episode_index, hls_concurrency):
             active=False,
             queue_id=queue_id,
             episode_index=episode_index,
+            phase="",
         )
 
 
@@ -508,6 +513,7 @@ def clear_episode_download_context():
             active=False,
             queue_id=None,
             episode_index=None,
+            phase="",
         )
 
 
@@ -528,9 +534,76 @@ def get_ffmpeg_progress():
 
 def _clear_download_progress():
     with _ffmpeg_progress_lock:
+        if _ffmpeg_progress["phase"]:
+            # The download itself is finished; the bar keeps showing that.
+            _ffmpeg_progress.update(time="", speed="", bandwidth="")
+            return
         _ffmpeg_progress.update(
             percent=0.0, time="", speed="", bandwidth="", active=False
         )
+
+
+def _update_progress(**fields):
+    """Update the shared progress; the caller holds the lock.
+
+    Once the download is through, remuxing, muxing and subtitle passes each
+    run their own FFmpeg job that would count from zero again. The episode is
+    not back at the start, so during post-processing the bar never moves
+    backwards and stays visible.
+    """
+    if _ffmpeg_progress["phase"]:
+        if "percent" in fields:
+            fields["percent"] = max(fields["percent"], _ffmpeg_progress["percent"])
+        fields["active"] = True
+    _ffmpeg_progress.update(**fields)
+
+
+@contextmanager
+def _post_processing(stage):
+    """Mark the work inside as post-processing of an already downloaded file.
+
+    Nested blocks only relabel the stage. When the outermost block finishes
+    the file is in place, so the episode stays at 100% until the worker moves
+    on; if it fails the progress is cleared so a retry starts cleanly.
+    """
+    with _ffmpeg_progress_lock:
+        previous = _ffmpeg_progress["phase"]
+        nested = previous not in ("", "done")
+        if nested:
+            _ffmpeg_progress["phase"] = stage
+        else:
+            floor = (
+                _ffmpeg_progress["percent"]
+                if _ffmpeg_progress["active"] and _ffmpeg_progress["percent"] > 0
+                else 99.0
+            )
+            _ffmpeg_progress.update(
+                phase=stage,
+                percent=floor,
+                time="",
+                speed="",
+                bandwidth="",
+                active=True,
+            )
+    succeeded = False
+    try:
+        yield
+        succeeded = True
+    finally:
+        with _ffmpeg_progress_lock:
+            if nested:
+                _ffmpeg_progress["phase"] = previous
+            elif succeeded:
+                _ffmpeg_progress.update(phase="done", time="", speed="", active=True)
+            else:
+                _ffmpeg_progress.update(
+                    phase="",
+                    percent=0.0,
+                    time="",
+                    speed="",
+                    bandwidth="",
+                    active=False,
+                )
 
 
 def _parse_ffmpeg_time(time_str):
@@ -701,7 +774,7 @@ def _run_ffmpeg_with_progress(
     stopped = None
 
     with _ffmpeg_progress_lock:
-        _ffmpeg_progress.update(
+        _update_progress(
             percent=progress_start, time="", speed="", bandwidth="", active=True
         )
 
@@ -765,7 +838,7 @@ def _run_ffmpeg_with_progress(
 
                 # Update global progress for web UI
                 with _ffmpeg_progress_lock:
-                    _ffmpeg_progress.update(
+                    _update_progress(
                         percent=round(percent, 1),
                         time=cur_time_str,
                         speed=cur_speed_str,
@@ -822,9 +895,7 @@ def _run_ffmpeg_with_progress(
         raise
     finally:
         with _ffmpeg_progress_lock:
-            _ffmpeg_progress.update(
-                percent=0.0, time="", speed="", bandwidth="", active=False
-            )
+            _update_progress(percent=0.0, time="", speed="", bandwidth="", active=False)
 
     reader_thread.join(timeout=5)
     process.wait()
@@ -842,7 +913,7 @@ def _run_ffmpeg_with_progress(
         raise RuntimeError(f"ffmpeg error (rc={process.returncode}): {detail}")
     if keep_progress:
         with _ffmpeg_progress_lock:
-            _ffmpeg_progress.update(
+            _update_progress(
                 percent=progress_end,
                 time="",
                 speed="",
@@ -940,13 +1011,14 @@ def _embed_requested_subtitle(owner, episode_path, label="", progress_start=95.0
             str(output_path),
             **options,
         )
-        _run_ffmpeg_with_progress(
-            node,
-            label=label,
-            progress_start=progress_start,
-            progress_end=100.0,
-            before_output_args=metadata_args,
-        )
+        with _post_processing("subtitles"):
+            _run_ffmpeg_with_progress(
+                node,
+                label=label,
+                progress_start=progress_start,
+                progress_end=100.0,
+                before_output_args=metadata_args,
+            )
         verified = check_downloaded(output_path)
         if not _has_requested_subtitle(verified, wanted):
             raise RuntimeError(
@@ -961,6 +1033,11 @@ def _embed_requested_subtitle(owner, episode_path, label="", progress_start=95.0
 def _finalize_episode(
     temp_path, episode_path, label="", owner=None, progress_start=0.0
 ):
+    with _post_processing("converting"):
+        _finalize_episode_file(temp_path, episode_path, label, owner, progress_start)
+
+
+def _finalize_episode_file(temp_path, episode_path, label, owner, progress_start):
     """Move `temp_path` onto `episode_path`, remuxing when containers differ.
 
     The muxer always writes Matroska, so a naming template ending in `.mp4`
@@ -1196,7 +1273,8 @@ def _download_hls_stream(
                     acodec="copy",
                     **{"metadata:s:a:0": f"language={audio_lang}"},
                 )
-            _run_ffmpeg_with_progress(node, label=ep_label)
+            with _post_processing("converting"):
+                _run_ffmpeg_with_progress(node, label=ep_label)
         else:
             _download_full_stream(
                 stream_url,
@@ -1662,15 +1740,16 @@ def _download_full_stream(
             logger.debug(f"[HLS] manual fetch not used ({exc}); using FFmpeg")
         else:
             try:
-                _run_ffmpeg_with_progress(
-                    ffmpeg.input(str(temp_ts)).output(
-                        str(temp_full),
-                        vcodec=video_codec,
-                        acodec="copy",
-                        **stream_metadata,
-                    ),
-                    label=ep_label,
-                )
+                with _post_processing("converting"):
+                    _run_ffmpeg_with_progress(
+                        ffmpeg.input(str(temp_ts)).output(
+                            str(temp_full),
+                            vcodec=video_codec,
+                            acodec="copy",
+                            **stream_metadata,
+                        ),
+                        label=ep_label,
+                    )
                 return False
             except RuntimeError as exc:
                 logger.warning(
@@ -1844,33 +1923,34 @@ def download(self):
                         direct_http=provider_name == "Veev",
                     )
 
-                    if self._episode_path.exists():
-                        inputs = [
-                            ffmpeg.input(str(self._episode_path)),
-                            ffmpeg.input(str(temp_full)),
-                        ]
-                        output_path = self._episode_path.with_suffix(".new.mkv")
-                        _run_ffmpeg_with_progress(
-                            ffmpeg.output(*inputs, str(output_path), c="copy"),
-                            progress_start=95.0 if used_parallel else 0.0,
-                            progress_end=98.0 if used_parallel else 100.0,
-                            keep_progress=used_parallel,
-                        )
-                        _finalize_episode(
-                            output_path,
-                            self._episode_path,
-                            ep_label,
-                            owner=self,
-                            progress_start=98.0 if used_parallel else 0.0,
-                        )
-                    else:
-                        _finalize_episode(
-                            temp_full,
-                            self._episode_path,
-                            ep_label,
-                            owner=self,
-                            progress_start=95.0 if used_parallel else 0.0,
-                        )
+                    with _post_processing("converting"):
+                        if self._episode_path.exists():
+                            inputs = [
+                                ffmpeg.input(str(self._episode_path)),
+                                ffmpeg.input(str(temp_full)),
+                            ]
+                            output_path = self._episode_path.with_suffix(".new.mkv")
+                            _run_ffmpeg_with_progress(
+                                ffmpeg.output(*inputs, str(output_path), c="copy"),
+                                progress_start=95.0 if used_parallel else 0.0,
+                                progress_end=98.0 if used_parallel else 100.0,
+                                keep_progress=used_parallel,
+                            )
+                            _finalize_episode(
+                                output_path,
+                                self._episode_path,
+                                ep_label,
+                                owner=self,
+                                progress_start=98.0 if used_parallel else 0.0,
+                            )
+                        else:
+                            _finalize_episode(
+                                temp_full,
+                                self._episode_path,
+                                ep_label,
+                                owner=self,
+                                progress_start=95.0 if used_parallel else 0.0,
+                            )
 
                     if temp_full.exists():
                         temp_full.unlink()
@@ -1997,20 +2077,21 @@ def download(self):
                 if need_video:
                     inputs.append(ffmpeg.input(str(temp_video)))
 
-                output_path = self._episode_path.with_suffix(".new.mkv")
-                _run_ffmpeg_with_progress(
-                    ffmpeg.output(*inputs, str(output_path), c="copy"),
-                    progress_start=95.0 if used_parallel else 0.0,
-                    progress_end=98.0 if used_parallel else 100.0,
-                    keep_progress=used_parallel,
-                )
-                _finalize_episode(
-                    output_path,
-                    self._episode_path,
-                    ep_label,
-                    owner=self,
-                    progress_start=98.0 if used_parallel else 0.0,
-                )
+                with _post_processing("converting"):
+                    output_path = self._episode_path.with_suffix(".new.mkv")
+                    _run_ffmpeg_with_progress(
+                        ffmpeg.output(*inputs, str(output_path), c="copy"),
+                        progress_start=95.0 if used_parallel else 0.0,
+                        progress_end=98.0 if used_parallel else 100.0,
+                        keep_progress=used_parallel,
+                    )
+                    _finalize_episode(
+                        output_path,
+                        self._episode_path,
+                        ep_label,
+                        owner=self,
+                        progress_start=98.0 if used_parallel else 0.0,
+                    )
 
                 for f in (temp_audio, temp_video):
                     if f.exists():
