@@ -420,3 +420,35 @@ def test_non_music_interests_are_left_out(client, service):
     ]
     rows = client.get("/api/music/discover?row=global").get_json()["items"]
     assert [r["title"] for r in rows] == ["jazz", "drum & bass"]
+
+
+def test_nameless_downloads_get_their_real_name_back(converter, service, music_dir):
+    music_convert, _ = converter
+    _, answers = service
+    album = music_dir / "Stadtaffe"
+    album.mkdir(parents=True)
+    files = []
+    for index, title in enumerate(["01 - Alles neu.flac", "02 - Schwarz zu blau.mp3"], start=1):
+        local = album / f" ({index})"
+        local.write_bytes(b"audio")
+        files.append({"id": str(index), "filename": rf"@@music\Peter Fox\Stadtaffe\{title}",
+                      "state": "Completed, Succeeded", "localPath": str(local)})
+    answers[("GET", "/transfers/downloads")] = [
+        {"username": "alice", "directories": [{"directory": "x", "files": files}]}]
+    assert music_convert.convert_finished() == 1
+    assert sorted(p.name for p in album.iterdir()) == ["01 - Alles neu.mp3", "02 - Schwarz zu blau.mp3"]
+
+
+def test_service_names_files_after_the_remote_file():
+    import ast
+    from pathlib import Path
+
+    import h0melab
+
+    # The service runs in its own venv with aioslsk, so read it instead of importing
+    source = (Path(h0melab.__file__).parent / "soulseek_service" / "service.py").read_text(encoding="utf-8")
+    calls = [node for node in ast.walk(ast.parse(source))
+             if isinstance(node, ast.Assign) and any(
+                 isinstance(t, ast.Attribute) and t.attr == "naming_strategies" for t in node.targets)]
+    names = [element.func.id for element in calls[0].value.elts]
+    assert names[0] == "DefaultNamingStrategy"

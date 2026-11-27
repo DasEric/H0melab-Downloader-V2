@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,8 @@ AUDIO_EXTENSIONS = frozenset({
     ".ogg", ".oga", ".opus", ".wma", ".dsf", ".dff", ".mpc", ".tta",
 })
 SCAN_SECONDS = 10
+# Earlier versions saved downloads as " (1)", " (2)" … without a name or extension
+_NAMELESS = re.compile(r"^\s*\(\d+\)$")
 _TIMEOUT = 30 * 60
 
 _lock = threading.Lock()
@@ -122,6 +125,30 @@ def convert(source):
     return target
 
 
+def remote_name(remote_path):
+    """The file name of a Soulseek path (they use backslashes)."""
+    return str(remote_path or "").replace("\\", "/").rstrip("/").rsplit("/", 1)[-1].strip()
+
+
+def repair_name(local, remote_path):
+    """Give a nameless download back its real name. Returns the usable path."""
+    if not _NAMELESS.match(local.name):
+        return local
+    name = remote_name(remote_path)
+    if not name or name in {".", ".."} or "/" in name:
+        return local
+    target = local.with_name(name)
+    if target.exists():
+        stem, suffix = target.stem, target.suffix
+        number = 1
+        while target.exists():
+            target = local.with_name(f"{stem} ({number}){suffix}")
+            number += 1
+    os.replace(local, target)
+    logger.info("renamed %s back to %s", local.name, target.name)
+    return target
+
+
 def pending_files(downloads):
     """Finished downloads (service listing) that still need converting."""
     from . import soulseek
@@ -136,7 +163,14 @@ def pending_files(downloads):
                 if not isinstance(entry, dict) or soulseek._transfer_state(entry.get("state")) != "completed":
                     continue
                 local = soulseek._inside_music(entry.get("localPath"))
-                if local is None or not needs_conversion(local) or not local.is_file():
+                if local is None or not local.is_file():
+                    continue
+                try:
+                    local = repair_name(local, entry.get("filename"))
+                except OSError as exc:
+                    logger.warning("could not rename %s: %s", local.name, exc)
+                    continue
+                if not needs_conversion(local):
                     continue
                 with _lock:
                     if str(local) in _failed or str(local) in _converting:

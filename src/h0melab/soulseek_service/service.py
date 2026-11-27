@@ -36,7 +36,11 @@ from aioslsk.commands import (
     GetRecommendationsCommand,
     GetRoomListCommand,
 )
-from aioslsk.naming import KeepDirectoryStrategy, NumberDuplicateStrategy
+from aioslsk.naming import (
+    DefaultNamingStrategy,
+    KeepDirectoryStrategy,
+    NumberDuplicateStrategy,
+)
 from aioslsk.protocol.primitives import AttributeKey
 from aioslsk.settings import (
     CredentialsSettings,
@@ -102,8 +106,12 @@ class Service:
                     self.build_settings(),
                     transfer_cache=TransferShelveCache(data_dir),
                 )
-                # Keep each album in its own folder, like the remote side has it
-                self.client.shares.naming_strategies = [KeepDirectoryStrategy(), NumberDuplicateStrategy()]
+                # Take the remote file name first, then keep each album in its own
+                # folder like the remote side has it; the order matters, without
+                # the default strategy the name stays empty and only " (1)" is left
+                self.client.shares.naming_strategies = [
+                    DefaultNamingStrategy(), KeepDirectoryStrategy(), NumberDuplicateStrategy(),
+                ]
                 self.state = "Connecting"
                 await self.client.start()
                 await self.client.login()
