@@ -586,6 +586,38 @@ def _raise_for_queue_control():
         return
 
 
+_HLS_SEGMENT_OPTS_CACHE = None
+
+
+def _hls_permissive_input_opts():
+    """HLS demuxer options that accept disguised segment/playlist extensions.
+
+    `allowed_extensions` only covers playlists and keys. FFmpeg 7.1+ also checks
+    every segment URL against `allowed_segment_extensions` ("seg-1.woff2 is not
+    in allowed_segment_extensions") and probes the content (`extension_picky`).
+    Older builds reject these unknown options outright, so probe once and only
+    pass the ones this FFmpeg understands.
+    """
+    global _HLS_SEGMENT_OPTS_CACHE
+    if _HLS_SEGMENT_OPTS_CACHE is None:
+        opts = {"allowed_extensions": "ALL"}
+        try:
+            help_text = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-h", "demuxer=hls"],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            ).stdout
+        except Exception:
+            help_text = ""
+        if "allowed_segment_extensions" in help_text:
+            opts["allowed_segment_extensions"] = "ALL"
+        if "extension_picky" in help_text:
+            opts["extension_picky"] = 0
+        _HLS_SEGMENT_OPTS_CACHE = opts
+    return dict(_HLS_SEGMENT_OPTS_CACHE)
+
+
 def _run_ffmpeg_with_progress(
     node,
     overwrite_output=True,
@@ -1172,7 +1204,7 @@ def _download_hls_stream(
                     "reconnect": 1,
                     "reconnect_streamed": 1,
                     "reconnect_delay_max": 30,
-                    "allowed_extensions": "ALL",
+                    **_hls_permissive_input_opts(),
                     "headers": "".join(
                         f"{key}: {value}\r\n" for key, value in headers.items()
                     ),
@@ -1717,7 +1749,7 @@ def download(self):
                 if ".m3u8" in (stream_url or "").split("?", 1)[0].lower() or (
                     provider_name == "MoflixClick"
                 ):
-                    input_kwargs["allowed_extensions"] = "ALL"
+                    input_kwargs.update(_hls_permissive_input_opts())
                 if headers:
                     header_list = [f"{k}: {v}" for k, v in headers.items()]
                     input_kwargs["headers"] = "\r\n".join(header_list) + "\r\n"
