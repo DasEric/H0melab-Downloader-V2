@@ -101,6 +101,8 @@
     el("podcastPath").value = mediaPaths.podcast || "";
     el("uiLanguage").value = settings.ui_language;
     el("outputFormat").value = settings.output_format;
+    el("dnsMode").value = settings.dns_mode || "system";
+    el("dnsMode").dataset.saved = el("dnsMode").value;
     el("hlsConcurrency").value = settings.hls_concurrency || 8;
     el("hlsConcurrency").min = settings.hls_concurrency_min || 1;
     el("hlsConcurrency").max = settings.hls_concurrency_max || 32;
@@ -230,6 +232,17 @@
 
   el("outputFormat").addEventListener("change", () => {
     save({ output_format: el("outputFormat").value });
+  });
+
+  el("dnsMode").addEventListener("change", async () => {
+    const select = el("dnsMode");
+    select.disabled = true;
+    if (await save({ dns_mode: select.value })) {
+      select.dataset.saved = select.value;
+    } else {
+      select.value = select.dataset.saved || "system";
+    }
+    select.disabled = false;
   });
 
   /* ===== Provider fallback order =====

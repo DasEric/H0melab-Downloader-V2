@@ -4,7 +4,11 @@ import os
 
 
 def main():
+    from .net_dns import install as install_dns
     from .web import start_web_ui
+
+    # Before anything connects: the panel's DNS choice applies to every lookup
+    install_dns()
 
     host = os.getenv("H0MELAB_WEB_HOST", "0.0.0.0")
     try:

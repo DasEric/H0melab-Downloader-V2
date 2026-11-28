@@ -886,6 +886,27 @@
             <button class="btn btn-secondary" id="revealIpBtn" data-i18n="settings.reveal">Reveal</button>
           </div>
         </section>
+
+        <section class="card">
+          <h2 id="dnsModeLabel" data-i18n="settings.dns">DNS servers</h2>
+          <p class="hint" data-i18n="settings.dns_hint">
+            Which DNS servers the downloader uses to look up hosts. A change applies to every new
+            request right away, no restart needed.
+          </p>
+          <div class="control-row">
+            <label class="field field-compact">
+              <select id="dnsMode" aria-labelledby="dnsModeLabel">
+                <option value="system" data-i18n="settings.dns_system">No DNS (default, system/router)</option>
+                <option value="cloudflare" data-i18n="settings.dns_cloudflare">Cloudflare (1.1.1.1, 1.0.0.1)</option>
+                <option value="google" data-i18n="settings.dns_google">Google (8.8.8.8, 8.8.4.4)</option>
+              </select>
+            </label>
+          </div>
+          <p class="hint" data-i18n="settings.dns_local_hint">
+            Local names such as Docker services (jellyfin, plex) and anything the public servers do not
+            know keep using the system DNS.
+          </p>
+        </section>
       </section>
     </div>
   </div>
@@ -900,5 +921,5 @@
 <script>
   window.AUTH_ENABLED = {{ auth_enabled | tojson }};
 </script>
-<script src="{{ url_for('static', filename='settings.js') }}?v={{ app_version }}-zdf-dmax-v1"></script>
+<script src="{{ url_for('static', filename='settings.js') }}?v={{ app_version }}-dns-v1"></script>
 {% endblock %}

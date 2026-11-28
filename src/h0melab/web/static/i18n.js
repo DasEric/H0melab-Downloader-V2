@@ -480,6 +480,14 @@
       "settings.ip_loading": "Wird abgefragt...",
       "settings.ip_failed": "IP konnte nicht ermittelt werden",
       "settings.ip_source": "Quelle: {source}",
+      "settings.dns": "DNS-Server",
+      "settings.dns_hint":
+        "Welche DNS-Server der Downloader für Namensauflösungen nutzt. Die Änderung gilt sofort für alle neuen Anfragen, ohne Neustart.",
+      "settings.dns_system": "Kein DNS (Standard, System/Router)",
+      "settings.dns_cloudflare": "Cloudflare (1.1.1.1, 1.0.0.1)",
+      "settings.dns_google": "Google (8.8.8.8, 8.8.4.4)",
+      "settings.dns_local_hint":
+        "Lokale Namen wie Docker-Dienste (jellyfin, plex) und alles, was die öffentlichen Server nicht kennen, laufen weiter über den System-DNS.",
       "settings.saved": "Gespeichert",
       "settings.save_failed": "Speichern fehlgeschlagen",
       "settings.confirm_delete_user": 'Benutzer "{name}" wirklich löschen?',

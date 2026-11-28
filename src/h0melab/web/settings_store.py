@@ -11,6 +11,7 @@ from datetime import timedelta
 import niquests as requests
 from dotenv import dotenv_values, load_dotenv
 
+from .. import net_dns
 from ..config import (
     H0MELAB_CONFIG_DIR,
     LANG_LABELS,
@@ -526,6 +527,11 @@ def read_settings():
         "available_ui_languages": list(UI_LANGUAGES),
         "available_output_formats": list(OUTPUT_FORMATS),
         "available_autosync_modes": list(AUTOSYNC_MODES),
+        "dns_mode": net_dns.dns_mode(),
+        "available_dns_modes": [
+            {"key": mode, "servers": list(net_dns.dns_servers(mode))}
+            for mode in net_dns.DNS_MODES
+        ],
         "available_sites": [
             {
                 "key": site,
@@ -660,6 +666,12 @@ def update_settings(data):
     if "provider_fallback_order" in data:
         _collect_provider_order(data["provider_fallback_order"], updates)
 
+    if "dns_mode" in data:
+        mode = str(data["dns_mode"]).strip().lower()
+        if mode not in net_dns.DNS_MODES:
+            raise SettingsError(f"Invalid dns_mode: {mode}")
+        updates[net_dns.DNS_KEY] = mode
+
     if "hls_concurrency" in data:
         raw = data["hls_concurrency"]
         if isinstance(raw, bool):
@@ -719,9 +731,14 @@ def update_settings(data):
 
     # Persist first. If the disk is read-only/full, the API must not claim a
     # successful save or leave a runtime-only change that vanishes on restart.
+    previous_dns = net_dns.dns_mode()
     _persist_settings(updates)
     for key, value in updates.items():
         os.environ[key] = value
+    if net_dns.DNS_KEY in updates:
+        # Lookups read the choice per call; dropping the cached answers makes
+        # the switch take effect for the very next request.
+        net_dns.apply_dns_mode(previous_dns)
 
     return discord_changed
 
@@ -745,6 +762,7 @@ def _env_sections():
             [
                 ("H0MELAB_DOWNLOAD_PATH", str(paths.default_download_path())),
                 ("H0MELAB_UI_LANGUAGE", ui_language()),
+                (net_dns.DNS_KEY, net_dns.dns_mode()),
             ],
         ),
         (
